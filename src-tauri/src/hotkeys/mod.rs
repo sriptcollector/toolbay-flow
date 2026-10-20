@@ -30,6 +30,10 @@ pub struct Shared {
     pub enabled: AtomicBool,
 }
 
+/// dwExtraInfo marker on keystrokes Flow synthesizes, so the hook can skip them.
+#[allow(dead_code)]
+pub const OWN_INPUT_TAG: usize = 0x5442_464C;
+
 pub type Sink = Arc<dyn Fn(HotkeyEvent) + Send + Sync>;
 
 pub struct Matcher {

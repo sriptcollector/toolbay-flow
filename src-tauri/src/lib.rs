@@ -9,6 +9,7 @@ mod engines;
 mod hotkeys;
 mod llm;
 mod paste;
+mod selftest;
 mod settings;
 mod sounds;
 mod textproc;
@@ -212,6 +213,10 @@ fn on_menu(app: &AppHandle, id: &str) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(i) = args.iter().position(|a| a == "--selftest") {
+        std::process::exit(selftest::run(&args[i + 1..]));
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_hub(app, None);

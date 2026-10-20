@@ -126,7 +126,8 @@ fn strip_reasoning(s: &str) -> String {
     } else {
         t
     };
-    t.to_string()
+    // Markdown-style trailing spaces at line ends are not wanted in plain text.
+    t.lines().map(|l| l.trim_end()).collect::<Vec<_>>().join("\n")
 }
 
 // ---------------- prompts ----------------
@@ -216,6 +217,13 @@ pub fn cleanup_messages(i: &CleanupInput) -> (String, Vec<Msg>) {
         msg("user", "<transcript>things to buy eggs milk and uh bread oh and coffee</transcript>"),
         msg("assistant", "Things to buy:\n- Eggs\n- Milk\n- Bread\n- Coffee"),
     ];
+    if i.category == "email" {
+        msgs.push(msg(
+            "user",
+            "<transcript>hi sam thanks for the update um the numbers look good i'll send the contract by friday best jordan</transcript>",
+        ));
+        msgs.push(msg("assistant", "Hi Sam,\n\nThanks for the update. The numbers look good. I'll send the contract by Friday.\n\nBest,\nJordan"));
+    }
     let user = if ctx.is_empty() {
         format!("<transcript>{}</transcript>", i.transcript)
     } else {

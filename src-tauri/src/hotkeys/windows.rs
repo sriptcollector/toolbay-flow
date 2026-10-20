@@ -34,7 +34,7 @@ fn physically_down(code: u32) -> bool {
 fn mask_win() {
     let mk = |flags| INPUT {
         r#type: INPUT_KEYBOARD,
-        Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: VIRTUAL_KEY(0xE8), wScan: 0, dwFlags: flags, time: 0, dwExtraInfo: 0 } },
+        Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: VIRTUAL_KEY(0xE8), wScan: 0, dwFlags: flags, time: 0, dwExtraInfo: super::OWN_INPUT_TAG } },
     };
     let inputs = [mk(KEYBD_EVENT_FLAGS(0)), mk(KEYEVENTF_KEYUP)];
     unsafe {
@@ -45,8 +45,10 @@ fn mask_win() {
 unsafe extern "system" fn hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == HC_ACTION as i32 {
         let kb = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
-        let injected = (kb.flags.0 & LLKHF_INJECTED.0) != 0;
-        if !injected {
+        // Ignore only keystrokes Flow itself sends (paste, Start-menu masking);
+        // other injected input (AutoHotkey, Stream Deck, remote desktop) still counts.
+        let ours = (kb.flags.0 & LLKHF_INJECTED.0) != 0 && kb.dwExtraInfo == super::OWN_INPUT_TAG;
+        if !ours {
             let msg = wparam.0 as u32;
             let is_down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
             let is_up = msg == WM_KEYUP || msg == WM_SYSKEYUP;
