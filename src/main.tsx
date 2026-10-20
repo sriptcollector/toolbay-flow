@@ -4,6 +4,9 @@ import ReactDOM from "react-dom/client";
 const isBar = window.location.hash === "#bar";
 
 async function boot() {
+  if (import.meta.env.DEV && location.search.includes("mock")) {
+    (await import("./mock")).installMocks();
+  }
   const root = ReactDOM.createRoot(document.getElementById("root") as HTMLElement);
   if (isBar) {
     const { default: Bar } = await import("./bar/Bar");

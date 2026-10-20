@@ -13,6 +13,8 @@ software. It does what paid voice-dictation apps do, with speech recognition
 ([whisper.cpp](https://github.com/ggml-org/whisper.cpp)) and text cleanup ([llama.cpp](https://github.com/ggml-org/llama.cpp)
 with an open Qwen model) running on your own hardware.
 
+<p align="center"><img src="docs/screenshots/dictation.jpg" width="720" alt="Toolbay Flow history"></p>
+
 It's written from scratch (Tauri 2 + Rust + React). No code, assets or services from any commercial product are used.
 
 ## Install
@@ -79,6 +81,9 @@ Every shortcut can be changed in **Shortcuts**, including modifier-only combos.
   and to reach your own cloud provider if you choose one.
 
 ## Status
+
+Full checklist: [docs/FEATURES.md](docs/FEATURES.md).
+
 
 | Area | State |
 |---|---|
