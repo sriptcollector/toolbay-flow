@@ -183,6 +183,7 @@ export const api = {
   appInfo: () => invoke<{ version: string; fromToolbay: boolean; os: string }>("app_info"),
   openDataDir: () => invoke<void>("open_data_dir"),
   quit: () => invoke<void>("quit"),
+  uiReady: () => invoke<void>("ui_ready"),
   toolbayAccount: () => invoke<{ name: string; handle: string; avatar_url: string | null } | null>("toolbay_account"),
   setDesktopShortcut: (on: boolean) => invoke<void>("set_desktop_shortcut", { on }),
   hasDesktopShortcut: () => invoke<boolean>("has_desktop_shortcut"),

@@ -6,7 +6,8 @@
 //! running one and exits. While hidden, Flow keeps working from the tray and the
 //! dictation hotkeys stay live.
 //!
-//! State: `<app data>/running.json` = {pid, version, visible, hub}; it is removed on quit.
+//! State: `<app data>/running.json` = {pid, version, visible, window, updatedAt, hub}, rewritten on
+//! every show/hide and removed on quit.
 
 use serde::Serialize;
 use std::path::PathBuf;
@@ -19,10 +20,10 @@ pub fn handle_args(app: &AppHandle, args: &[String]) {
         if let Some(w) = app.get_webview_window("main") {
             let _ = w.hide();
         }
+        crate::WANT_VISIBLE.store(false, std::sync::atomic::Ordering::SeqCst);
         write_state(app);
     } else {
         crate::show_hub(app, None);
-        write_state(app);
     }
 }
 
@@ -41,6 +42,8 @@ pub fn write_state(app: &AppHandle) {
         "pid": std::process::id(),
         "version": app.package_info().version.to_string(),
         "visible": visible,
+        "window": if visible { "shown" } else { "hidden" },
+        "updatedAt": chrono::Utc::now().to_rfc3339(),
         "hub": from_hub(),
     });
     let _ = std::fs::write(state_path(app), v.to_string());

@@ -108,6 +108,8 @@ impl Db {
             );
             "#,
         )?;
+        // Entries left by development builds (the bar page URL pasted as text).
+        let _ = conn.execute("DELETE FROM history WHERE text LIKE 'http://localhost:1437/%'", []);
         Ok(Db(Mutex::new(conn)))
     }
 

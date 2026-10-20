@@ -27,6 +27,8 @@ async function boot() {
         <Hub />
       </React.StrictMode>,
     );
+    // Show the window only after the first paint, so it never flashes white.
+    requestAnimationFrame(() => requestAnimationFrame(() => import("./api").then(({ api }) => api.uiReady().catch(() => {}))));
   }
 }
 boot();

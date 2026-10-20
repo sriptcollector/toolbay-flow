@@ -40,7 +40,7 @@ change, and the "Toolbay tool rules" apply to every Toolbay app.
 10. **Theme.** Use the shared Toolbay theme tokens (`src/theme/toolbay-theme.css`, the same file
     the hub uses) with the original app's layout and feel.
 11. **Lives under the hub.** Ship a `toolbay.json` install manifest with each GitHub release.
-    Support `--from-toolbay`, `--show`, `--hide`, `--quit`, single-instance, a `running.json`
+    Support `--from-toolbay`, `--show`, `--hide`, `--quit`, single-instance, a `running.json` ({pid, visible, window, updatedAt}, rewritten on every show/hide)
     state file, and the hub's `TOOLBAY_TOKEN` (memory only, never written to disk).
 
 ## Working on Flow

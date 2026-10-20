@@ -42,12 +42,33 @@ pub const LANGUAGES: &[(&str, &str)] = &[
 pub fn show_hub(app: &AppHandle, page: Option<&str>) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
-        let _ = w.show();
-        let _ = w.set_focus();
+        if UI_READY.load(std::sync::atomic::Ordering::SeqCst) {
+            let _ = w.show();
+            let _ = w.set_focus();
+        } else {
+            // Shown by `ui_ready` once the page has painted (no white flash).
+            WANT_VISIBLE.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
         if let Some(p) = page {
             let _ = app.emit("navigate", p.to_string());
         }
     }
+    hub::write_state(app);
+}
+
+pub static UI_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub static WANT_VISIBLE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Called by the page once it has rendered; shows the window if it should be visible.
+pub fn ui_ready(app: &AppHandle) {
+    UI_READY.store(true, std::sync::atomic::Ordering::SeqCst);
+    if WANT_VISIBLE.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
+    }
+    hub::write_state(app);
 }
 
 fn create_hub(app: &AppHandle, visible: bool) -> tauri::Result<()> {
@@ -56,8 +77,16 @@ fn create_hub(app: &AppHandle, visible: bool) -> tauri::Result<()> {
         .inner_size(1180.0, 780.0)
         .min_inner_size(900.0, 620.0)
         .center()
-        .visible(visible)
+        .visible(false)
+        .background_color(tauri::window::Color(10, 10, 10, 255))
         .build()?;
+    WANT_VISIBLE.store(visible, std::sync::atomic::Ordering::SeqCst);
+    // Safety net in case the page never reports in.
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(4));
+        ui_ready(&app2);
+    });
     let w2 = w.clone();
     w.on_window_event(move |ev| {
         if let tauri::WindowEvent::CloseRequested { api, .. } = ev {
@@ -328,6 +357,7 @@ pub fn run() {
             commands::bar_action,
             commands::bar_hit,
             commands::open_hub,
+            commands::ui_ready,
             commands::hotkeys_enabled,
             commands::app_info,
             commands::open_data_dir,

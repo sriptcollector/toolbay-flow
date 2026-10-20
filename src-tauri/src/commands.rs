@@ -272,6 +272,11 @@ pub fn bar_hit(rects: Vec<[f64; 4]>) {
 }
 
 #[tauri::command]
+pub fn ui_ready(app: AppHandle) {
+    crate::ui_ready(&app);
+}
+
+#[tauri::command]
 pub fn open_hub(app: AppHandle, page: Option<String>) {
     crate::show_hub(&app, page.as_deref());
 }
