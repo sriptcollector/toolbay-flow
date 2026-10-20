@@ -59,6 +59,7 @@ pub struct State {
     generation: AtomicU64,
     pub mic_test: AtomicBool,
     pub last_learned: Mutex<Vec<i64>>,
+    last_activity: Mutex<Instant>,
 }
 
 #[derive(Clone, Serialize)]
@@ -105,6 +106,7 @@ impl State {
             generation: AtomicU64::new(0),
             mic_test: AtomicBool::new(false),
             last_learned: Mutex::new(vec![]),
+            last_activity: Mutex::new(Instant::now()),
         }))
     }
 
@@ -380,6 +382,7 @@ pub fn start(st: &St, mode: Mode) {
         st.bar("error", None, Some(format!("{e}")));
         return;
     }
+    *st.last_activity.lock() = Instant::now();
     let stream = Arc::new(Mutex::new(StreamState::default()));
     {
         let mut ss = st.session.lock();
@@ -714,6 +717,15 @@ async fn process(st: &St, raw: String, samples: Vec<f32>, mode: Mode, ctx: Focus
     if st.generation.load(Ordering::SeqCst) != gen {
         return Ok(None);
     }
+    // "…press enter": paste, then send the message.
+    let mut raw = raw;
+    let mut press_enter = false;
+    if mode != Mode::Command && st.settings.read().press_enter_command {
+        if let Some(stripped) = textproc::strip_press_enter(&raw) {
+            raw = stripped;
+            press_enter = true;
+        }
+    }
     let (text, mode_name) = if mode == Mode::Command {
         let mut selected = ctx.selected.clone();
         if selected.trim().is_empty() && !is_terminal(&ctx.exe) {
@@ -735,6 +747,10 @@ async fn process(st: &St, raw: String, samples: Vec<f32>, mode: Mode, ctx: Focus
     let restore = st.settings.read().restore_clipboard;
     let t2 = text.clone();
     tokio::task::spawn_blocking(move || paste::paste(&t2, restore)).await??;
+    if press_enter {
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        let _ = tokio::task::spawn_blocking(paste::press_enter).await;
+    }
     // Release-to-paste latency, the number that makes dictation feel instant or not.
     let latency = released.elapsed().as_millis() as i64;
     let cleanup_ms = (latency as u64).saturating_sub(speech_ms);
@@ -918,7 +934,7 @@ pub fn apply_settings(st: &St, new: Settings) -> Result<()> {
         }
     }
     if let Some(bar) = st.app.get_webview_window("bar") {
-        if new.show_bar {
+        if new.show_bar && new.bar_snooze_until <= chrono::Utc::now().timestamp() {
             let _ = bar.show();
         } else {
             let _ = bar.hide();
@@ -926,6 +942,14 @@ pub fn apply_settings(st: &St, new: Settings) -> Result<()> {
     }
     *st.settings.write() = new;
     Ok(())
+}
+
+/// Time since the last dictation started (and nothing is in progress now).
+pub fn idle_for(st: &St) -> Duration {
+    if st.session.lock().phase != Phase::Idle {
+        return Duration::ZERO;
+    }
+    st.last_activity.lock().elapsed()
 }
 
 pub fn mic_idle_tick(st: &St) {

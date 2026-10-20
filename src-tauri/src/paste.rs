@@ -8,6 +8,11 @@ pub fn paste(text: &str, restore: bool) -> Result<()> {
     platform::paste(text, restore)
 }
 
+/// Sends a single Enter key press (the "press enter" voice command).
+pub fn press_enter() {
+    platform::press_enter()
+}
+
 pub fn copy(text: &str) -> Result<()> {
     platform::set_text(text)
 }
@@ -174,6 +179,13 @@ mod platform {
         Ok(())
     }
 
+    pub fn press_enter() {
+        let inputs = [key(0x0D, false), key(0x0D, true)];
+        unsafe {
+            SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+        }
+    }
+
     pub fn copy_selection() -> Option<String> {
         let snap = snapshot();
         let before = unsafe { GetClipboardSequenceNumber() };
@@ -249,6 +261,14 @@ mod platform {
         Ok(())
     }
 
+    pub fn press_enter() {
+        let Ok(src) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else { return };
+        if let (Ok(d), Ok(u)) = (CGEvent::new_keyboard_event(src.clone(), 36, true), CGEvent::new_keyboard_event(src, 36, false)) {
+            d.post(CGEventTapLocation::HID);
+            u.post(CGEventTapLocation::HID);
+        }
+    }
+
     pub fn copy_selection() -> Option<String> {
         let mut cb = arboard::Clipboard::new().ok()?;
         let prev = cb.get_text().ok();
@@ -275,4 +295,5 @@ mod platform {
     pub fn copy_selection() -> Option<String> {
         None
     }
+    pub fn press_enter() {}
 }

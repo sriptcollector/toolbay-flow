@@ -61,6 +61,9 @@ export interface Settings {
   auto_slow_speech: boolean;
   auto_slow_cleanup: boolean;
   desktop_shortcut: boolean;
+  profile: Record<string, string[]> | null;
+  press_enter_command: boolean;
+  bar_snooze_until: number;
 }
 export interface AutoInfo {
   hardware: { gpu_vendor: string; gpu_name: string; vram_mb: number; ram_mb: number; threads: number };
@@ -183,6 +186,8 @@ export const api = {
   toolbayAccount: () => invoke<{ name: string; handle: string; avatar_url: string | null } | null>("toolbay_account"),
   setDesktopShortcut: (on: boolean) => invoke<void>("set_desktop_shortcut", { on }),
   hasDesktopShortcut: () => invoke<boolean>("has_desktop_shortcut"),
+  micCheck: () => invoke<{ ok: boolean; message: string }>("mic_check"),
+  openSystemSettings: (kind: string) => invoke<void>("open_system_settings", { kind }),
 };
 
 export function on<T>(event: string, cb: (payload: T) => void): () => void {

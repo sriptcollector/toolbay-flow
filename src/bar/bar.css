@@ -240,3 +240,46 @@ html.bar-root #root {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: none; }
 }
+
+.menu {
+  min-width: 230px;
+  max-width: 320px;
+  background: rgba(20, 20, 20, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  animation: rise 0.14s ease-out;
+}
+.menu button {
+  text-align: left;
+  background: none;
+  border: none;
+  color: #ededed;
+  font-size: 12.5px;
+  padding: 6px 9px;
+  border-radius: 7px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.menu button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.menu button.on::before {
+  content: "✓ ";
+  color: #8b6dff;
+}
+.menu-label {
+  font-size: 11px;
+  color: #909090;
+  padding: 6px 9px 2px;
+}
+.menu-sep {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 4px 2px;
+}

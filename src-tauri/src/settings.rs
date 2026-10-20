@@ -122,6 +122,12 @@ pub struct Settings {
     pub auto_slow_speech: bool,
     pub auto_slow_cleanup: bool,
     pub desktop_shortcut: bool,
+    /// Onboarding answers (role, where you type...). Stays on this computer.
+    pub profile: serde_json::Value,
+    /// Say "press enter" at the end to send the message after pasting.
+    pub press_enter_command: bool,
+    /// Flow bar hidden until this time (unix seconds), from "Hide for 1 hour".
+    pub bar_snooze_until: i64,
 }
 
 impl Default for Settings {
@@ -170,6 +176,9 @@ impl Default for Settings {
             auto_slow_speech: false,
             auto_slow_cleanup: false,
             desktop_shortcut: true,
+            profile: serde_json::Value::Null,
+            press_enter_command: true,
+            bar_snooze_until: 0,
         }
     }
 }

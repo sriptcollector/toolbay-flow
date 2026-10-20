@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, CleanupLevel, DataPolicy, LANGUAGES, Provider } from "../../api";
 import { Page, Row, Section, Toggle, useSettings } from "../ui";
 import { isMac } from "../../keys";
+import Credit from "../Credit";
 
 const LEVELS: [CleanupLevel, string, string][] = [
   ["none", "Off", "Paste exactly what was heard"],
@@ -114,6 +115,12 @@ export default function SettingsPage() {
         </Row>
       </Section>
 
+      <Section title="Experimental">
+        <Row title="“Press enter” voice command" desc="End a dictation with “press enter” to paste and send it, in chat apps for example.">
+          <Toggle on={s.press_enter_command} onChange={(v) => save({ press_enter_command: v })} />
+        </Row>
+      </Section>
+
       <Section title="Data and privacy">
         <Row title="History" desc="Where your dictations are kept. Everything stays on this computer either way.">
           <select value={s.data_policy} onChange={(e) => save({ data_policy: e.target.value as DataPolicy })}>
@@ -161,6 +168,9 @@ export default function SettingsPage() {
           </button>
         </Row>
       </Section>
+      <footer className="settings-foot">
+        <Credit />
+      </footer>
     </Page>
   );
 }

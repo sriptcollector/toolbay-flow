@@ -9,6 +9,8 @@ mod engines;
 mod hotkeys;
 mod hub;
 mod llm;
+mod logging;
+mod updates;
 mod models;
 mod paste;
 mod selftest;
@@ -28,7 +30,7 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Webview
 pub static BAR_HIT: Lazy<Mutex<Vec<[f64; 4]>>> = Lazy::new(|| Mutex::new(vec![]));
 
 const BAR_W: f64 = 420.0;
-const BAR_H: f64 = 150.0;
+const BAR_H: f64 = 340.0;
 
 pub const LANGUAGES: &[(&str, &str)] = &[
     ("auto", "Auto-detect"), ("en", "English"), ("es", "Spanish"), ("fr", "French"), ("de", "German"),
@@ -120,6 +122,17 @@ fn bar_loop(app: AppHandle) {
             let Some(w) = app.get_webview_window("bar") else { continue };
             if tick % 7 == 0 {
                 place_bar(&app);
+            }
+            // "Hide for 1 hour" from the bar menu: bring it back afterwards.
+            if tick % 50 == 0 {
+                let st = app.state::<St>();
+                let (show, until) = {
+                    let s = st.settings.read();
+                    (s.show_bar && s.onboarded, s.bar_snooze_until)
+                };
+                if show && until > 0 && until <= chrono::Utc::now().timestamp() && !w.is_visible().unwrap_or(true) {
+                    let _ = w.show();
+                }
             }
             let (Ok(cur), Ok(pos), Ok(scale)) = (app.cursor_position(), w.outer_position(), w.scale_factor()) else { continue };
             let lx = (cur.x - pos.x as f64) / scale;
@@ -228,11 +241,13 @@ pub fn run() {
             hub::handle_args(app, &args);
         }))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--hidden"])))
         .setup(|app| {
             let handle = app.handle().clone();
             let config_dir = app.path().app_config_dir()?;
             let data_dir = app.path().app_data_dir()?;
+            logging::init(&data_dir);
             let st = dictation::State::new(handle.clone(), config_dir, data_dir)?;
             app.manage(st.clone());
 
@@ -268,6 +283,10 @@ pub fn run() {
                 std::thread::sleep(Duration::from_secs(5));
                 dictation::mic_idle_tick(&st_mic);
             });
+            // Silent updates when running on its own (the Toolbay hub updates Flow itself).
+            if !hub::from_hub() {
+                updates::start(&st);
+            }
             // Daily retention pass.
             let st2 = st.clone();
             std::thread::spawn(move || loop {
@@ -316,6 +335,8 @@ pub fn run() {
             commands::toolbay_account,
             commands::set_desktop_shortcut,
             commands::has_desktop_shortcut,
+            commands::mic_check,
+            commands::open_system_settings,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Toolbay Flow")

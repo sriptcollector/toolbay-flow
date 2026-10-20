@@ -7,6 +7,8 @@ use crate::settings::Settings;
 use serde::Serialize;
 use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, Manager, State};
+#[allow(unused_imports)]
+use chrono;
 
 type R<T> = Result<T, String>;
 
@@ -243,6 +245,23 @@ pub fn bar_action(st: State<St>, action: String) {
         "stop" => dictation::stop(&st),
         "cancel" => dictation::cancel(&st),
         "open" => crate::show_hub(&st.app, None),
+        "paste_last" => {
+            if let Ok(Some(t)) = st.db.last_text() {
+                let restore = st.settings.read().restore_clipboard;
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(150));
+                    let _ = crate::paste::paste(&t, restore);
+                });
+            }
+        }
+        "hide_1h" => {
+            let mut s = st.settings.read().clone();
+            s.bar_snooze_until = chrono::Utc::now().timestamp() + 3600;
+            let _ = dictation::apply_settings(&st, s);
+            if let Some(b) = st.app.get_webview_window("bar") {
+                let _ = b.hide();
+            }
+        }
         _ => {}
     }
 }
@@ -285,6 +304,56 @@ pub fn quit(app: AppHandle) {
 #[tauri::command]
 pub async fn toolbay_account() -> Option<crate::hub::Account> {
     crate::hub::account().await
+}
+
+#[derive(Serialize)]
+pub struct MicCheck {
+    ok: bool,
+    message: String,
+}
+
+/// Can Flow open the microphone? Explains what to do when Windows blocks it.
+#[tauri::command]
+pub fn mic_check(st: State<St>) -> MicCheck {
+    if st.mic_test.load(Ordering::Relaxed) {
+        return MicCheck { ok: true, message: String::new() };
+    }
+    let dev = st.settings.read().microphone.clone();
+    let mut r = crate::audio::Recorder::new();
+    match r.start(dev, std::sync::Arc::new(|_| {})) {
+        Ok(()) => {
+            let _ = r.stop();
+            r.close();
+            MicCheck { ok: true, message: String::new() }
+        }
+        Err(err) => MicCheck {
+            ok: false,
+            message: if cfg!(windows) {
+                format!("Windows is blocking the microphone. Click Open settings and turn on \"Let desktop apps access your microphone\". ({err})")
+            } else {
+                format!("macOS hasn't allowed the microphone yet. Click Open settings and switch on Toolbay Flow. ({err})")
+            },
+        },
+    }
+}
+
+/// Opens the right page of the OS privacy settings.
+#[tauri::command]
+pub fn open_system_settings(app: AppHandle, kind: String) {
+    use tauri_plugin_opener::OpenerExt;
+    let url = if cfg!(windows) {
+        match kind.as_str() {
+            "microphone" => "ms-settings:privacy-microphone",
+            _ => "ms-settings:privacy",
+        }
+    } else {
+        match kind.as_str() {
+            "microphone" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+            "accessibility" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+            _ => "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
+        }
+    };
+    let _ = app.opener().open_url(url, None::<&str>);
 }
 
 #[tauri::command]

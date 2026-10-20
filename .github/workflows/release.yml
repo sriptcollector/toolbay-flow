@@ -22,6 +22,10 @@ jobs:
           - os: macos-latest
             args: "--target x86_64-apple-darwin"
     runs-on: ${{ matrix.os }}
+    env:
+      # Signs update packages so installed copies can update themselves.
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -36,26 +40,71 @@ jobs:
       - run: npm ci
       - run: cargo test --manifest-path src-tauri/Cargo.toml
         if: matrix.os == 'windows-latest'
+      # Code signing turns on by itself once the certificates are added as
+      # repository secrets (see docs/SIGNING.md). Without them builds are unsigned.
+      - name: Apple signing and notarization (if configured)
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$APPLE_CERTIFICATE" ]; then
+            for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+              echo "$v=${!v}" >> "$GITHUB_ENV"
+            done
+          fi
+      - name: Windows signing (if configured)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          TRUSTED_SIGNING_ACCOUNT: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          TRUSTED_SIGNING_PROFILE: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
+        run: |
+          if [ -n "$TRUSTED_SIGNING_ACCOUNT" ]; then
+            cargo install trusted-signing-cli --locked
+            for v in AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_TENANT_ID; do echo "$v=${!v}" >> "$GITHUB_ENV"; done
+            node -e "const f='src-tauri/tauri.conf.json';const j=require('./'+f);j.bundle.windows.signCommand='trusted-signing-cli -e https://eus.codesigning.azure.net -a $TRUSTED_SIGNING_ACCOUNT -c $TRUSTED_SIGNING_PROFILE -d \"Toolbay Flow\" %1';require('fs').writeFileSync(f,JSON.stringify(j,null,2))"
+          fi
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Toolbay Flow ${{ github.ref_name }}"
-          releaseBody: "Free, local, open-source voice dictation. See the README for install steps."
+          releaseBody: "Free, local, open-source voice dictation. Download the installer for your computer below. See the README for details."
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
-      - name: Attach toolbay.json (hub install manifest)
-        if: matrix.os == 'windows-latest'
-        shell: bash
-        env:
+
+  manifest:
+    # toolbay.json for the Toolbay hub, with the real size and sha256 of each installer.
+    needs: app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ github.ref_name }}" toolbay.json --clobber
+        run: |
+          mkdir assets
+          gh release download "${{ github.ref_name }}" -D assets -p "*.exe" -p "*.dmg"
+          node scripts/manifest.mjs assets toolbay.json
+          gh release upload "${{ github.ref_name }}" toolbay.json --clobber
 
   # whisper.cpp has no official macOS server binary, so build one with Metal and
-  # attach it to the fixed "engines-v1" release the app downloads from.
+  # attach it to the fixed "engines-v1" release (bundled into the Mac app at build time).
   whisper-macos:
+    if: github.event_name == 'workflow_dispatch'
     strategy:
       matrix:
         arch: [arm64, x86_64]
@@ -75,7 +124,7 @@ jobs:
           repository: ${{ github.repository }}
           tag_name: engines-v1
           name: "Engines (macOS builds of whisper.cpp)"
-          body: "whisper-server built from ggml-org/whisper.cpp b5454 with Metal (MIT). Downloaded by Toolbay Flow on first run."
+          body: "whisper-server built from ggml-org/whisper.cpp b5454 with Metal (MIT). Bundled into Toolbay Flow for macOS."
           files: whisper-server-macos-${{ matrix.arch }}.tar.gz
           make_latest: false
           target_commitish: ${{ github.sha }}

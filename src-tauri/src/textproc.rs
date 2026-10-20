@@ -270,6 +270,14 @@ pub fn vocabulary_prompt(dict: &[DictEntry], max_chars: usize) -> String {
     out
 }
 
+/// Detects a trailing "press enter" / "hit enter" voice command and returns the
+/// text without it.
+pub fn strip_press_enter(raw: &str) -> Option<String> {
+    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)(^|[\s,.;:!?-]+)(press|hit) (enter|return)[\s.!?]*$").unwrap());
+    let m = RE.find(raw)?;
+    Some(raw[..m.start()].trim_end().to_string())
+}
+
 /// Levenshtein distance on chars (for auto-learning corrected words).
 pub fn levenshtein(a: &str, b: &str) -> usize {
     let a: Vec<char> = a.chars().collect();
@@ -371,6 +379,13 @@ mod tests {
         let c = learned_corrections("Meeting with Kubernetis team", "Meeting with Kubernetes team");
         assert_eq!(c, vec![("Kubernetis".to_string(), "Kubernetes".to_string())]);
         assert!(learned_corrections("hello there", "a completely different long rewritten sentence here now").is_empty());
+    }
+
+    #[test]
+    fn press_enter() {
+        assert_eq!(strip_press_enter("see you at five, press enter.").as_deref(), Some("see you at five"));
+        assert_eq!(strip_press_enter("Hit Enter"), Some(String::new()));
+        assert!(strip_press_enter("I pressed enter yesterday").is_none());
     }
 
     #[test]

@@ -1,11 +1,33 @@
-import { useEffect, useRef, useState } from "react";
-import { api, LANGUAGES, on } from "../api";
-import { comboLabel } from "../keys";
+import { ReactNode, useEffect, useRef, useState } from "react";
+import { api, LANGUAGES, on, Style } from "../api";
+import { comboLabel, isMac } from "../keys";
+import Credit from "./Credit";
 import { Logo } from "./Hub";
+import { ActiveDownload, useModelStatus } from "./pages/Models";
 import { useRecorder } from "./pages/Shortcuts";
 import { Keys, Toggle, useSettings } from "./ui";
 
-const STEPS = ["Welcome", "Privacy", "Microphone", "Shortcut", "Language", "Try it"] as const;
+// Same order as the original: about you → permissions → set up → learn → personalize.
+// Plans, trials, referrals and teams are left out on purpose: everything is free.
+const STEPS = ["Welcome", "About you", "Where you type", "Privacy", "Permissions", "Microphone", "Language", "Shortcut", "Try it", "Your style", "Done"] as const;
+const GROUPS: [string, number][] = [
+  ["Welcome", 0],
+  ["Permissions", 3],
+  ["Set up", 5],
+  ["Learn", 8],
+  ["Personalize", 9],
+];
+
+const ROLES = ["Consultant", "Creator", "Customer support", "Data analysis", "Developer", "Educator", "Founder / CEO", "Healthcare", "Legal", "Marketing", "Operations", "Product", "Recruiting", "Sales", "Student", "Writer", "Other"];
+const HEARD = ["Friend or colleague", "YouTube", "Social media", "Toolbay", "Search engine", "AI chat", "Newsletter", "Podcast", "Article", "Other"];
+const USES: [string, string][] = [
+  ["ai", "Chatting with AI"],
+  ["code", "Coding with AI"],
+  ["email", "Drafting emails"],
+  ["messages", "Sending messages"],
+  ["notes", "Taking notes"],
+  ["docs", "Writing documents and posts"],
+];
 
 export default function Onboarding({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState(0);
@@ -17,47 +39,46 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
     await save({ onboarded: true, show_bar: true });
     onDone();
   };
+  const group = [...GROUPS].reverse().find(([, i]) => step >= i)?.[0];
+  const props = { next, back };
   return (
     <div className="ob">
       <div className="ob-top">
         <Logo size={26} />
         <div className="ob-steps">
-          {STEPS.map((t, i) => (
-            <span key={t} className={i === step ? "cur" : i < step ? "done" : ""}>
-              {t}
-            </span>
-          ))}
+          {GROUPS.map(([t], gi) => {
+            const end = GROUPS[gi + 1]?.[1] ?? STEPS.length;
+            return (
+              <span key={t} className={group === t ? "cur" : step >= end ? "done" : ""}>
+                {t}
+              </span>
+            );
+          })}
+        </div>
+        <div className="ob-progress">
+          <i style={{ transform: `scaleX(${step / (STEPS.length - 1)})` }} />
         </div>
       </div>
       <div className="ob-body">
         {step === 0 && <Welcome next={next} />}
-        {step === 1 && <Privacy next={next} back={back} />}
-        {step === 2 && <Mic next={next} back={back} />}
-        {step === 3 && <ShortcutStep next={next} back={back} />}
-        {step === 4 && (
-          <div className="ob-card">
-            <h1>Which language do you speak?</h1>
-            <p>Pick one for the best accuracy, or let Flow detect it each time.</p>
-            <div className="langs">
-              {LANGUAGES.slice(0, 20).map(([c, n]) => (
-                <button key={c} className={s.language === c ? "sel" : ""} onClick={() => save({ language: c })}>
-                  {n}
-                </button>
-              ))}
-            </div>
-            {s.language !== "en" && s.speech_model.endsWith(".en") && (
-              <p className="warn">Your speech model is English-only. Pick a multilingual model on the next screens or in Models.</p>
-            )}
-            <Nav back={back} next={next} />
-          </div>
-        )}
-        {step === 5 && <TryIt back={back} finish={finish} />}
+        {step === 1 && <AboutYou {...props} />}
+        {step === 2 && <WhereYouType {...props} />}
+        {step === 3 && <Privacy {...props} />}
+        {step === 4 && <Permissions {...props} />}
+        {step === 5 && <Mic {...props} />}
+        {step === 6 && <Language {...props} />}
+        {step === 7 && <ShortcutStep {...props} />}
+        {step === 8 && <TryIt {...props} />}
+        {step === 9 && <YourStyle {...props} />}
+        {step === 10 && <Done back={back} finish={finish} />}
       </div>
     </div>
   );
 }
 
-function Nav({ back, next, nextLabel = "Continue", disabled }: { back?: () => void; next: () => void; nextLabel?: string; disabled?: boolean }) {
+type StepProps = { next: () => void; back: () => void };
+
+function Nav({ back, next, nextLabel = "Continue", disabled, extra }: { back?: () => void; next: () => void; nextLabel?: string; disabled?: boolean; extra?: ReactNode }) {
   return (
     <div className="ob-nav">
       {back ? (
@@ -67,11 +88,35 @@ function Nav({ back, next, nextLabel = "Continue", disabled }: { back?: () => vo
       ) : (
         <span />
       )}
-      <button className="btn primary big" disabled={disabled} onClick={next}>
-        {nextLabel}
-      </button>
+      <div className="ob-nav-r">
+        {extra}
+        <button className="btn primary big" disabled={disabled} onClick={next}>
+          {nextLabel}
+        </button>
+      </div>
     </div>
   );
+}
+
+function Chips({ options, value, onChange, multi }: { options: [string, string][]; value: string[]; onChange: (v: string[]) => void; multi?: boolean }) {
+  return (
+    <div className="chips">
+      {options.map(([id, label]) => {
+        const sel = value.includes(id);
+        return (
+          <button key={id} className={sel ? "sel" : ""} onClick={() => onChange(multi ? (sel ? value.filter((x) => x !== id) : [...value, id]) : [id])}>
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function useProfile() {
+  const [s, save] = useSettings();
+  const p = (s?.profile ?? {}) as Record<string, string[]>;
+  return [p, (patch: Record<string, string[]>) => save({ profile: { ...p, ...patch } })] as const;
 }
 
 function Welcome({ next }: { next: () => void }) {
@@ -79,38 +124,82 @@ function Welcome({ next }: { next: () => void }) {
     <div className="ob-card hero">
       <h1 className="display">Talk. It types.</h1>
       <p className="lead">
-        Flow turns what you say into clean, punctuated text in any app: email, chat, docs, code, AI prompts. It runs entirely on this computer, it's free, and
-        the code is open.
+        Flow turns what you say into clean, punctuated text in any app: email, chat, docs, code, AI prompts. It runs on this computer, it's free, and the code is
+        open.
       </p>
       <ul className="ticks">
         <li>Hold a key, speak, let go. Your words appear where your cursor is.</li>
-        <li>Fillers and false starts are removed, lists and punctuation added.</li>
+        <li>Ums, repeats and false starts are removed. Lists and punctuation are added.</li>
         <li>No account, no limits, no subscription.</li>
       </ul>
       <Nav next={next} nextLabel="Get started" />
+      <Credit />
     </div>
   );
 }
 
-function Privacy({ next, back }: { next: () => void; back: () => void }) {
+function AboutYou({ next, back }: StepProps) {
+  const [p, set] = useProfile();
+  return (
+    <div className="ob-card wide">
+      <h1>Tell us about yourself</h1>
+      <p>This helps Flow pick good defaults. It stays on this computer.</p>
+      <h4>What do you do for work?</h4>
+      <Chips options={ROLES.map((r) => [r, r])} value={p.role ?? []} onChange={(v) => set({ role: v })} />
+      <h4>Where did you hear about Flow?</h4>
+      <Chips options={HEARD.map((r) => [r, r])} value={p.heard ?? []} onChange={(v) => set({ heard: v })} />
+      <Nav
+        back={back}
+        next={next}
+        extra={
+          <button className="link" onClick={next}>
+            Skip
+          </button>
+        }
+      />
+    </div>
+  );
+}
+
+function WhereYouType({ next, back }: StepProps) {
+  const [p, set] = useProfile();
+  return (
+    <div className="ob-card wide">
+      <h1>Where do you spend time typing?</h1>
+      <p>Pick all that apply.</p>
+      <Chips multi options={USES} value={p.uses ?? []} onChange={(v) => set({ uses: v })} />
+      <Nav
+        back={back}
+        next={next}
+        extra={
+          <button className="link" onClick={next}>
+            Skip
+          </button>
+        }
+      />
+    </div>
+  );
+}
+
+function Privacy({ next, back }: StepProps) {
   const [s, save] = useSettings();
   if (!s) return null;
   return (
     <div className="ob-card">
-      <h1>Your voice stays here</h1>
-      <p>Speech recognition and cleanup run on your own hardware with open models. Flow has no servers and sends no analytics.</p>
+      <h1>Your voice stays on this computer</h1>
+      <p>Speech recognition and cleanup run on your own computer with open models. Flow has no servers, no account and no analytics.</p>
       <div className="card">
         <div className="row">
           <div className="row-text">
             <div className="row-title">Context awareness</div>
-            <div className="row-desc">Read the text near your cursor so dictation fits in. Never from password fields.</div>
+            <div className="row-desc">Read the text near your cursor so what you say fits in. Never reads password fields.</div>
           </div>
           <Toggle on={s.context_awareness} onChange={(v) => save({ context_awareness: v })} />
         </div>
         <div className="row">
           <div className="row-text">
             <div className="row-title">Keep a history of my dictations</div>
-            <div className="row-desc">Stored on this computer so you can copy or fix past text.</div>
+            <div className="row-desc">Kept on this computer so you can copy or fix past text.</div>
           </div>
           <Toggle on={s.data_policy !== "never_store"} onChange={(v) => save({ data_policy: v ? "store_normally" : "never_store" })} />
         </div>
@@ -120,12 +209,76 @@ function Privacy({ next, back }: { next: () => void; back: () => void }) {
   );
 }
 
-function Mic({ next, back }: { next: () => void; back: () => void }) {
+function PermCard({ icon, title, desc, ok, action, onAction }: { icon: string; title: string; desc: string; ok: boolean | null; action: string; onAction: () => void }) {
+  return (
+    <div className={`perm ${ok ? "ok" : ""}`}>
+      <div className="perm-icon">{icon}</div>
+      <div className="perm-text">
+        <b>{title}</b>
+        <span>{desc}</span>
+      </div>
+      {ok ? (
+        <span className="status ok">Allowed</span>
+      ) : (
+        <button className="btn" onClick={onAction}>
+          {action}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function Permissions({ next, back }: StepProps) {
+  const [mic, setMic] = useState<{ ok: boolean; message: string } | null>(null);
+  useEffect(() => {
+    const check = () => api.micCheck().then(setMic);
+    check();
+    const t = setInterval(check, 2500);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="ob-card wide">
+      <h1>Allow Flow to hear you and type for you</h1>
+      <p>{isMac ? "macOS asks you to allow these once. Click each button, then switch Toolbay Flow on in the window that opens." : "Windows needs to let apps use your microphone."}</p>
+      <div className="perms">
+        <PermCard
+          icon="🎙️"
+          title="Microphone"
+          desc={mic && !mic.ok ? mic.message : "So Flow can hear you while you hold the key."}
+          ok={mic?.ok ?? null}
+          action="Open settings"
+          onAction={() => api.openSystemSettings("microphone")}
+        />
+        {isMac && (
+          <>
+            <PermCard icon="⌨️" title="Accessibility" desc="So Flow can type the text into the app you're using." ok={null} action="Open settings" onAction={() => api.openSystemSettings("accessibility")} />
+            <PermCard icon="🔑" title="Input Monitoring" desc="So your dictation shortcut works in every app." ok={null} action="Open settings" onAction={() => api.openSystemSettings("input")} />
+          </>
+        )}
+      </div>
+      {isMac && (
+        <div className="howto">
+          <div className="howto-pic">
+            <div className="fake-row">
+              <span>Toolbay Flow</span>
+              <span className="fake-toggle on" />
+            </div>
+          </div>
+          <span className="muted small">In System Settings, find Toolbay Flow in the list and turn it on. If it isn't listed, click + and pick Toolbay Flow from Applications.</span>
+        </div>
+      )}
+      <Nav back={back} next={next} nextLabel={mic?.ok ? "Continue" : "I've allowed it"} />
+    </div>
+  );
+}
+
+function Mic({ next, back }: StepProps) {
   const [s, save] = useSettings();
   const [mics, setMics] = useState<string[]>([]);
   const [lvl, setLvl] = useState<number[]>(Array(24).fill(0));
   const [heard, setHeard] = useState(false);
   const [err, setErr] = useState("");
+  const [p, set] = useProfile();
   useEffect(() => {
     api.listMics().then(setMics);
     const off = on<number>("mic-level", (l) => {
@@ -139,13 +292,14 @@ function Mic({ next, back }: { next: () => void; back: () => void }) {
   }, []);
   useEffect(() => {
     if (!s) return;
+    setErr("");
     api.micTest(false).then(() => api.micTest(true)).catch((e) => setErr(String(e)));
   }, [s?.microphone]);
   if (!s) return null;
   return (
-    <div className="ob-card">
-      <h1>Check your microphone</h1>
-      <p>Say a few words. The bars should move as you talk. Built-in and wired mics are the most reliable.</p>
+    <div className="ob-card wide">
+      <h1>Test your microphone</h1>
+      <p>Say a few words. Do you see the bars move while you speak? Built-in and wired microphones work best; Bluetooth headsets can be less reliable.</p>
       <select value={s.microphone ?? ""} onChange={(e) => save({ microphone: e.target.value || null })}>
         <option value="">System default</option>
         {mics.map((m) => (
@@ -158,15 +312,42 @@ function Mic({ next, back }: { next: () => void; back: () => void }) {
         ))}
       </div>
       {err && <p className="warn">{err}</p>}
-      <p className="muted small">{heard ? "Sounds good." : "Waiting for sound…"}</p>
-      <Nav back={back} next={next} nextLabel={heard ? "It works" : "Continue"} />
+      <h4>Do you work next to other people?</h4>
+      <Chips
+        options={[
+          ["yes", "Yes"],
+          ["no", "No"],
+        ]}
+        value={p.near ?? []}
+        onChange={(v) => set({ near: v })}
+      />
+      {p.near?.[0] === "yes" && <p className="muted small">Tip: speak at a normal, quiet volume. A headset or earbuds mic picks up less of the room.</p>}
+      <Nav back={back} next={next} nextLabel={heard ? "Yes, I see them" : "Continue"} />
     </div>
   );
 }
 
-function ShortcutStep({ next, back }: { next: () => void; back: () => void }) {
+function Language({ next, back }: StepProps) {
   const [s, save] = useSettings();
-  const [live, setLive] = useState<Set<number>>(new Set());
+  if (!s) return null;
+  return (
+    <div className="ob-card wide">
+      <h1>Which language do you speak?</h1>
+      <p>Pick one for the best accuracy, or let Flow detect it every time.</p>
+      <div className="langs">
+        {LANGUAGES.slice(0, 30).map(([c, n]) => (
+          <button key={c} className={s.language === c ? "sel" : ""} onClick={() => save({ language: c }).then(() => api.rerunAuto())}>
+            {n}
+          </button>
+        ))}
+      </div>
+      <Nav back={back} next={next} />
+    </div>
+  );
+}
+
+function ShortcutStep({ next, back }: StepProps) {
+  const [s, save] = useSettings();
   const [ok, setOk] = useState(false);
   const [changing, setChanging] = useState(false);
   const ptt = s?.shortcuts.find((x) => x.action === "push_to_talk");
@@ -182,55 +363,156 @@ function ShortcutStep({ next, back }: { next: () => void; back: () => void }) {
     setTimeout(() => rec.start(), 50);
   });
   useEffect(() => {
-    setLive(new Set(rec.keys));
-  }, [rec.keys]);
-  useEffect(() => {
     rec.start();
     return () => rec.stop();
   }, []);
   if (!s || !ptt) return null;
   return (
     <div className="ob-card">
-      <h1>Your dictation key</h1>
+      <h1>Press the shortcut to try it</h1>
       <p>
-        Hold <b>{comboLabel(ptt.keys)}</b>, speak, and let go. Try pressing it now.
+        You'll hold <b>{comboLabel(ptt.keys)}</b>, speak, and let go. Press it now. Do the keys light up while you hold them?
       </p>
       <div className={`bigkeys ${ok ? "ok" : ""}`}>
-        <Keys keys={changing ? rec.keys : ptt.keys} live={live} />
+        <Keys keys={changing ? rec.keys : ptt.keys} live={new Set(rec.keys)} />
       </div>
-      <p className="muted small">{changing ? "Press the new combination, then let go." : ok ? "Perfect." : "The keys light up while you hold them."}</p>
+      <p className="muted small">{changing ? "Press the new combination, then let go." : ok ? "That works." : "Waiting for you to press it…"}</p>
       <button className="link" onClick={() => setChanging(true)}>
         Use a different shortcut
       </button>
       <div className="tips">
         <div>
-          <b>Hands-free:</b> double-tap the key, talk as long as you like, tap again to finish.
+          <b>Hands-free:</b> double-tap the shortcut, talk as long as you like, then tap it again.
         </div>
         <div>
           <b>Cancel:</b> press Esc while Flow is listening.
         </div>
       </div>
+      <Nav back={back} next={next} nextLabel={ok ? "Yes, they light up" : "Continue"} />
+    </div>
+  );
+}
+
+const PRACTICE: { kind: "chat" | "email" | "doc"; title: string; say: string }[] = [
+  { kind: "chat", title: "Send a quick message", say: "Hey, um, are we still on for lunch tomorrow? I can do 12, no wait, 1 works better." },
+  { kind: "email", title: "Write an email", say: "Hi Sam, thanks for the update. The numbers look good and I'll send the contract by Friday. Best, Alex" },
+  { kind: "doc", title: "Take a note", say: "Ideas for the launch: a short demo video, a post on the community page, and a thank you email to the beta testers." },
+];
+
+function TryIt({ next, back }: StepProps) {
+  const [s] = useSettings();
+  const [i, setI] = useState(0);
+  const [text, setText] = useState(["", "", ""]);
+  const ta = useRef<HTMLTextAreaElement>(null);
+  const status = useModelStatus();
+  useEffect(() => {
+    ta.current?.focus();
+  }, [i]);
+  const ptt = s?.shortcuts.find((x) => x.action === "push_to_talk");
+  const p = PRACTICE[i];
+  const set = (v: string) => setText((t) => t.map((x, j) => (j === i ? v : x)));
+  return (
+    <div className="ob-card wide">
+      <h1>{p.title}</h1>
+      <p>
+        Click in the box, hold <b>{ptt ? comboLabel(ptt.keys) : "your shortcut"}</b> and read this out loud, ums and all:
+      </p>
+      <blockquote>“{p.say}”</blockquote>
+      <div className={`mock mock-${p.kind}`}>
+        {p.kind === "chat" && (
+          <>
+            <div className="mock-head">
+              <span className="dot" /> Jordan
+            </div>
+            <div className="bubble-in">Lunch tomorrow?</div>
+          </>
+        )}
+        {p.kind === "email" && (
+          <div className="mock-head col">
+            <span>To: sam@example.com</span>
+            <span>Subject: Contract</span>
+          </div>
+        )}
+        {p.kind === "doc" && <div className="mock-head">Launch notes</div>}
+        <textarea ref={ta} rows={p.kind === "chat" ? 2 : 5} value={text[i]} onChange={(e) => set(e.target.value)} placeholder={p.kind === "chat" ? "Message" : "Start talking…"} />
+      </div>
+      {(status.busy || status.message) && (
+        <div className="muted small">
+          {status.message || "Getting faster models ready…"} You can already dictate.
+          <ActiveDownload />
+        </div>
+      )}
+      <Nav
+        back={i === 0 ? back : () => setI(i - 1)}
+        next={i < PRACTICE.length - 1 ? () => setI(i + 1) : next}
+        nextLabel={text[i].trim() ? "Next" : "Skip"}
+        extra={
+          <span className="muted small">
+            {i + 1} of {PRACTICE.length}
+          </span>
+        }
+      />
+    </div>
+  );
+}
+
+const STYLE_OPTS: [Style, string][] = [
+  ["formal", "Formal"],
+  ["casual", "Casual"],
+  ["very_casual", "Very casual"],
+  ["excited", "Excited"],
+];
+
+function YourStyle({ next, back }: StepProps) {
+  const [s, save] = useSettings();
+  if (!s) return null;
+  const rows: ["personal" | "work" | "email" | "other", string][] = [
+    ["personal", "Personal messages"],
+    ["work", "Work messages"],
+    ["email", "Email"],
+    ["other", "Everything else"],
+  ];
+  return (
+    <div className="ob-card wide">
+      <h1>How should you sound?</h1>
+      <p>Flow adjusts to the app you're in. Change this any time under Style. Styles apply to English.</p>
+      {rows.map(([k, label]) => (
+        <div key={k} className="style-pick">
+          <b>{label}</b>
+          <Chips options={STYLE_OPTS} value={[s.styles[k]]} onChange={(v) => save({ styles: { ...s.styles, [k]: v[0] as Style } })} />
+        </div>
+      ))}
       <Nav back={back} next={next} />
     </div>
   );
 }
 
-function TryIt({ back, finish }: { back: () => void; finish: () => void }) {
+function Done({ back, finish }: { back: () => void; finish: () => void }) {
   const [s] = useSettings();
-  const [text, setText] = useState("");
-  const ta = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    ta.current?.focus();
-  }, []);
-  const ptt = s?.shortcuts.find((x) => x.action === "push_to_talk");
+  if (!s) return null;
+  const k = (a: string) => s.shortcuts.find((x) => x.action === a)?.keys ?? [];
   return (
-    <div className="ob-card wide">
-      <h1>Try it</h1>
-      <p>
-        Click in the box, hold <b>{ptt ? comboLabel(ptt.keys) : "your key"}</b> and read this out, ums and all:
-      </p>
-      <blockquote>“Hey um can we move the call to Thursday at 3, no actually 4, and I'll send the notes after question mark”</blockquote>
-      <textarea ref={ta} className="tryit" rows={5} value={text} onChange={(e) => setText(e.target.value)} placeholder="Your words will appear here…" />
+    <div className="ob-card">
+      <h1>You're all set</h1>
+      <p>Flow lives in your tray and in the small bar at the bottom of your screen.</p>
+      <div className="card summary">
+        <div className="row">
+          <span>Dictate</span>
+          <Keys keys={k("push_to_talk")} />
+        </div>
+        <div className="row">
+          <span>Hands-free</span>
+          <Keys keys={k("hands_free")} />
+        </div>
+        <div className="row">
+          <span>Edit selected text by voice</span>
+          <Keys keys={k("command")} />
+        </div>
+        <div className="row">
+          <span>Paste your last dictation</span>
+          <Keys keys={k("paste_last")} />
+        </div>
+      </div>
       <Nav back={back} next={finish} nextLabel="Start using Flow" />
     </div>
   );

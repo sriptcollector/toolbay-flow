@@ -6,6 +6,9 @@
 Hold a key, speak, let go: clean, punctuated text appears wherever your cursor is.<br>
 No account. No word limits. No subscription. Nothing leaves your computer.</p>
 
+<p align="center"><sub>Inspired by <img src="src/assets/inspired-by/wispr-flow.svg" height="12" alt="Wispr Flow"> Wispr Flow<br>
+Toolbay Flow is an independent open-source project and is not affiliated with or endorsed by Wispr.</sub></p>
+
 ---
 
 Toolbay Flow is the first free tool in the [Toolbay](https://toolbay.ai) collection: open-source rebuilds of paid
@@ -20,8 +23,10 @@ It's written from scratch (Tauri 2 + Rust + React). No code, assets or services 
 ## Install
 
 **Windows 10/11:** download `Toolbay.Flow_x.y.z_x64-setup.exe` from [Releases](https://github.com/sriptcollector/toolbay-flow/releases/latest)
-and run it. It installs for your user only (no admin prompt). The setup screen downloads the AI models once (about 0.2 to 3 GB
-depending on what you pick).
+and double-click it. One install and it works: no admin prompt, nothing else to install, no models to pick. The installer
+includes a small speech model, so you can dictate straight away, offline. Flow then picks the best models for your computer
+by itself and fetches them quietly in the background (a fast GPU gets Large v3 Turbo plus a 4B cleanup model; an ordinary
+laptop gets compact models that stay instant on the CPU).
 
 **macOS (Apple Silicon or Intel):** download the `.dmg` from Releases. The macOS build is produced by CI but has
 not been tested on a real Mac yet; see *Status* below. Grant Microphone, Accessibility and Input Monitoring when asked.
@@ -50,8 +55,11 @@ Every shortcut can be changed in **Shortcuts**, including modifier-only combos.
 - **Flow bar**: a small always-on-top pill at the bottom of the screen with a live waveform, hands-free stop/cancel buttons,
   processing and done states, error and "learned a word" toasts. It follows the monitor your mouse is on and is
   click-through everywhere except the pill.
-- **Local speech recognition** with whisper.cpp. Built-in model downloader from Tiny to Large v3 Turbo. NVIDIA GPUs
-  use CUDA automatically (a 10-second clip transcribes in about 0.1 s on an RTX 4070 Ti).
+- **Local speech recognition** with whisper.cpp, **models chosen automatically** for your hardware (GPU, video memory,
+  RAM, cores), re-checked when hardware changes and stepped down if dictation gets slow. Manual choice under Advanced.
+- **Fast:** the mic opens instantly with a short pre-roll, speech is transcribed in chunks while you talk, and only the
+  tail is left when you let go. On an RTX 4070 Ti, release-to-text is about 0.16 s for 3 s of speech, 0.3 s for 10 s
+  and 0.85 s for 30 s (p50, including AI cleanup).
 - **AI cleanup**: removes fillers and stutters, applies spoken corrections ("6, no wait, 7" → "7"), punctuation, spoken
   commands ("new line", "question mark"), lists, numbers and email layout. Runs locally through llama.cpp
   (Qwen3 4B Instruct on GPU, Qwen3 1.7B for CPU-only machines), with a rule-based fallback.
@@ -75,8 +83,10 @@ Every shortcut can be changed in **Shortcuts**, including modifier-only combos.
 - **Languages**: 99 languages with multilingual models, or auto-detect.
 - **Onboarding**: privacy choices, microphone test, model download sized to your hardware, shortcut test, language, try-it box.
 - **Tray menu**: open, paste last dictation, microphone and language pickers, show/hide bar, quit.
-- **Settings**: launch at login, sounds (synthesized, no audio files), mute other audio while dictating, keep clipboard,
-  history retention (keep / 24 hours / never), keep recordings for 14 days, delete all.
+- **Settings**: launch at login, desktop shortcut, sounds (synthesized, no audio files), keep clipboard, "press enter"
+  voice command, history retention (keep / 24 hours / never), keep recordings for 14 days, delete all. Flow never
+  mutes or pauses your music.
+- **Updates itself** quietly when you're not dictating (or through the Toolbay app), and restarts itself after a crash.
 - **Privacy**: no accounts, no servers, no telemetry. The network is only used to download the models and engines you pick,
   and to reach your own cloud provider if you choose one.
 
@@ -90,7 +100,14 @@ Full checklist: [docs/FEATURES.md](docs/FEATURES.md).
 | Windows 10/11 x64 | Built, installed and tested on Windows 11 with an RTX 4070 Ti |
 | macOS | Configured and built in CI (Accessibility, CGEventTap hotkeys, Cmd+V paste, Metal engines). **Not yet tested on a Mac.** |
 | Speech on AMD/Intel GPUs (Windows) | Runs on CPU for now (cleanup already uses Vulkan on any GPU) |
-| Meeting notetaker, cloud sync, teams, mobile apps | Not included (out of scope for v0.1) |
+| Code signing | Prepared in CI; needs certificates (see [docs/SIGNING.md](docs/SIGNING.md)). Until then Windows shows a SmartScreen prompt |
+| Meeting notetaker, cloud sync, teams, mobile apps | Not included yet |
+
+## Contributing
+
+Read [AGENTS.md](AGENTS.md) and [CONTRIBUTING.md](CONTRIBUTING.md). The rules in short: simplicity first; one-step install
+that includes the models; 1:1 feature and UX parity with Wispr Flow is the bar; everything free; local by default;
+no telemetry; clean-room only; consumer-first.
 
 ## Build from source
 

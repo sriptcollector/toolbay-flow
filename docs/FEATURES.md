@@ -1,44 +1,73 @@
-# Feature checklist (v0.1.0)
+# Parity checklist vs Wispr Flow (v0.2.0)
 
-Checked against the Wispr Flow reverse-engineering report (toolbay-research, sections on product, pipeline and UI).
-"Verified" means exercised on Windows 11 + RTX 4070 Ti with the installed release build.
+Source: the reverse-engineering report in toolbay-research (evidence/03 product/UI, 01 architecture,
+02 pipeline). "Verified" = exercised on Windows 11 + RTX 4070 Ti. "Built" = implemented, unit-tested
+or rendered, not yet exercised live by a person. "Omitted" = deliberately left out (paid, cloud or
+team-only features that don't apply to a free local app).
 
-| Report feature | Toolbay Flow | State |
-|---|---|---|
-| Push-to-talk hotkey (hold Ctrl+Win / Fn) | Low-level keyboard hook, modifier-only chords | Verified (live dictations pasted into Chrome and the Flow window) |
-| Hands-free (dedicated chord + double-tap PTT) | Ctrl+Win+Space or double-tap; stop/cancel on the bar | Built, unit-tested state machine |
-| Esc to dismiss | Swallowed only while listening | Built, unit-tested |
-| Start-menu suppression for Win chords | Dummy-key masking | Built |
-| Floating pill / Flow bar | Rest sliver, hover, waveform, hands-free buttons, processing, done, error, toasts; follows cursor monitor; click-through outside the pill | Built |
-| Mic capture, device picker | cpal, any input device, 16 kHz resample, level meter, mic test | Verified (mic test in onboarding) |
-| Transcription | whisper.cpp server, model downloader Tiny → Large v3 Turbo, CUDA on NVIDIA | Verified: ~0.1 s per 10 s clip on GPU |
-| AI cleanup: fillers, punctuation, lists, backtracking, spoken commands, email layout | Local Qwen3 via llama.cpp (Vulkan/CPU) + rule fallback; 4 levels | Verified: ~0.2 s; "6, no wait, 7" → "7"; lists; email layout |
-| Per-app styles (personal/work/email/other × formal/casual/very casual/excited) | Same categories + custom app rules | Verified (category routing in selftest) |
-| Personal dictionary | Words, replacement rules, star, usage, speech-model biasing | Built |
-| Auto-learn from corrections + undo toast | Watches the field after paste via UI Automation | Built (not yet exercised live) |
-| Snippets | Trigger phrase → text, whole-dictation and inline | Built, unit-tested |
-| Command mode (edit selected text by voice) | Ctrl+Win+Alt; selection via UIA or Ctrl+C fallback | Built (not yet exercised live) |
-| Transforms / Polish (Win+Alt+1/2/3) | 3 editable presets | Built (not yet exercised live) |
-| Context: focused app, window title, text around cursor | Windows UI Automation; macOS AX code paths | Verified on Windows (app names recorded) |
-| Paste into any app with clipboard restore | Clipboard snapshot of all formats, Ctrl/⌘+V, restore, excluded from clipboard history | Verified (Chrome) |
-| Paste last / copy last | Alt+Shift+Z / X, tray item | Built |
-| History (copy, retry, revert view, delete, search) | Yes, with 14-day audio retention option | Built |
-| Data policies (keep / 24 h / never) | Yes | Built |
-| Languages (99, auto-detect) | Yes, with multilingual models | Built |
-| Onboarding (privacy, permissions, mic test, shortcut test, language, try it) | Yes + hardware-aware model download | Verified (completed by Orion on this PC) |
-| Settings (launch at login, sounds, mute music, bar, theme…) | Yes; synthesized sounds, no audio files | Built |
-| Stats / insights (WPM, streaks, per-app, heatmap, time saved) | Yes | Built |
-| Scratchpad notes | Plain-text notes | Built (no rich text, no sync) |
-| Tray menu | Open, paste last, mic, language, bar toggle, shortcuts, quit | Built |
-| Plans, paywalls, sign-in, word limits | None by design | n/a |
+## Dictation core
 
-## Not included / remaining
+| Feature | State |
+|---|---|
+| Hold-to-talk (Ctrl+Win / Fn) | Verified (live dictations into Chrome and Flow) |
+| Hands-free: Ctrl+Win+Space, double-tap PTT, stop/cancel buttons on the bar | Built, state machine unit-tested |
+| Command mode (Ctrl+Win+Alt): edit selection by voice, or write from an instruction | Built |
+| Esc cancels while listening (only then) | Built, unit-tested |
+| Paste last (Alt+Shift+Z) / copy last (Alt+Shift+X) | Built |
+| Transforms 1-3 (Win+Alt+1/2/3): Polish, Prompt engineer, Make it shorter, editable | Built |
+| Shortcut editor: live recorder, modifier-only and Right Ctrl/Alt, conflicts, reserved combos, reset, instant apply | Built, regression-tested (the "can't change hotkeys" bug) |
+| Start-menu suppression for Win chords | Built |
+| Speech: local whisper.cpp, GPU (CUDA) when present | Verified: ~0.1 s for 10 s of audio |
+| Automatic model choice from hardware, latency step-down, manual override in Advanced | Built (auto choice verified on this PC) |
+| One-step install with a bundled starter model and engine | Built (installer verified) |
+| Streaming transcription while speaking, pre-roll, warm mic, silence compaction | Built; benchmark below |
+| AI cleanup: fillers, self-corrections, punctuation, lists, numbers, email layout | Verified on recordings |
+| Spoken commands: new line, new paragraph, punctuation words, "scratch that", "press enter" | Built, unit-tested |
+| Per-app style categories × Formal / Casual / Very casual / Excited, custom app rules | Verified routing |
+| Context: focused app, title, text around cursor, selection; never password fields | Verified on Windows |
+| Paste via clipboard + Ctrl/⌘+V, all-format clipboard restore, kept out of clipboard history | Verified |
+| Never mutes or ducks other audio | Built (mute feature removed; shared-mode console capture) |
+| Personal dictionary: words, replacement rules, star, usage counts, speech-model biasing | Built |
+| Auto-learn corrected words + "Added X" toast with Undo | Built |
+| Snippets with length counter | Built |
+| 99 languages / auto-detect | Built |
 
-- Meeting notetaker (recording, speakers, summaries, calendar), cloud sync, teams/admin, referral, mobile apps.
-- OCR of screenshots for context (Wispr sends screenshots to its server; Flow only reads accessibility text).
-- "Hey Flow"/agent-style Instruct mode with tool calls; MCP server.
-- Rich-text (HTML) snippets and Scratchpad formatting.
-- Browser URL detection (window title is used instead).
-- GPU speech on AMD/Intel GPUs on Windows (CPU today; needs a Vulkan build of whisper.cpp).
-- macOS app is built by CI but untested on a Mac (needs Accessibility + Input Monitoring + Microphone grants).
-- Code signing (Windows SmartScreen will warn on first run; macOS DMG is unsigned/unnotarized).
+Release-to-text latency on this PC (p50 / p95, 20 runs, includes AI cleanup):
+3 s speech 159 / 185 ms · 10 s 303 / 332 ms · 30 s 845 / 893 ms.
+
+## Screens
+
+| Original screen / element | Toolbay Flow |
+|---|---|
+| Onboarding: welcome | Built, with "Inspired by" credit |
+| About you (role, where you heard) | Built (stays local) |
+| Where you spend time typing | Built |
+| Privacy | Built |
+| Permissions (mic; macOS accessibility + input monitoring) with guidance | Built (Windows mic check verified to run; macOS untested) |
+| Mic test with bars + "do you work next to people?" | Built |
+| Language | Built |
+| Shortcut test ("do the keys light up?") | Built |
+| Try it yourself: message, email, doc practice screens | Built (own generic mock-ups, no third-party brands) |
+| Personalize styles | Built |
+| Speedy onboarding, trial offers, referrals, team invites, Flow Pro | Omitted (free, no accounts) |
+| Home: stats strip + searchable history by day (copy, original transcript, retry, delete) | Built |
+| Insights: words, WPM, streak, time saved, heatmap, per-app | Built |
+| Dictionary, Snippets, Style, Transforms pages | Built |
+| Scratchpad notes | Built (page in the hub; no floating window, no rich text) |
+| Settings: general, voice, cleanup, experimental, data & privacy, about | Built |
+| Flow bar: rest sliver, hover, waveform, hands-free buttons, command colour, processing, done, error, toasts, follows monitor, click-through | Built |
+| Flow bar right-click menu: paste last, microphone, hide for 1 hour, open | Built |
+| Tray menu: open, paste last, microphone, language, bar toggle, shortcuts, settings, quit | Built |
+| Sounds: start, stop, hands-free lock, cancel, error | Built (own synthesized sounds) |
+
+## Not built yet
+
+- Meeting notetaker (recording, speakers, summaries, calendar, imports).
+- Floating scratchpad window with rich text; rich-text (HTML) snippets.
+- Screenshot OCR for context; browser URL detection (window title is used).
+- "Hey Flow" / Instruct agent mode with tool calls; MCP server.
+- GPU speech on AMD/Intel GPUs on Windows (CPU today; cleanup already uses Vulkan).
+- Light theme (Flow follows the Toolbay dark theme).
+- Bar docking to the left/right screen edge.
+- macOS: built in CI, not tested on a real Mac.
+- Code signing: prepared, needs certificates (docs/SIGNING.md).

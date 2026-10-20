@@ -35,7 +35,7 @@ export default function StylePage() {
   const [cat, setCat] = useState("work");
   if (!s) return null;
   return (
-    <Page title="Style" sub="Flow writes differently depending on where you are. Pick how each kind of app should sound.">
+    <Page title="Style" sub="Flow writes differently depending on where you are. Pick how each kind of app should sound. Styles apply to English.">
       {CATS.map(([key, title, apps, text]) => (
         <section key={key} className="section">
           <div className="section-head">

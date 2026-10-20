@@ -18,6 +18,10 @@ export default function Bar() {
   const [bubble, setBubble] = useState<{ text: string; kind: string } | null>(null);
   const [hover, setHover] = useState(false);
   const [hint, setHint] = useState("");
+  const [menu, setMenu] = useState(false);
+  const [mics, setMics] = useState<string[]>([]);
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const levels = useRef<number[]>(Array(BARS).fill(0));
   const [, force] = useState(0);
   const pillRef = useRef<HTMLDivElement>(null);
@@ -29,6 +33,7 @@ export default function Bar() {
     document.documentElement.classList.add("bar-root");
     const loadHint = () =>
       api.getSettings().then((s: Settings) => {
+        setSettings(s);
         const ptt = s.shortcuts.find((x) => x.action === "push_to_talk");
         setHint(ptt ? comboLabel(ptt.keys) : "");
       });
@@ -76,6 +81,7 @@ export default function Bar() {
     };
     add(pillRef.current, st.phase === "idle" && !hover ? 10 : 6);
     add(bubbleRef.current, 2);
+    add(menuRef.current, 2);
     api.barHit(rects).catch(() => {});
   });
 
@@ -106,7 +112,30 @@ export default function Bar() {
           )}
         </div>
       )}
-      {hover && st.phase === "idle" && !bubble && hint && (
+      {menu && settings && (
+        <div ref={menuRef} className="menu" onMouseLeave={() => setMenu(false)}>
+          <button onClick={() => (setMenu(false), api.barAction("paste_last"))}>Paste last dictation</button>
+          <div className="menu-label">Microphone</div>
+          {[null, ...mics].map((m) => (
+            <button
+              key={m ?? "default"}
+              className={settings.microphone === m ? "on" : ""}
+              onClick={() => {
+                const next = { ...settings, microphone: m };
+                setSettings(next);
+                api.saveSettings(next);
+                setMenu(false);
+              }}
+            >
+              {m ?? "System default"}
+            </button>
+          ))}
+          <div className="menu-sep" />
+          <button onClick={() => (setMenu(false), api.barAction("hide_1h"))}>Hide this bar for 1 hour</button>
+          <button onClick={() => (setMenu(false), api.barAction("open"))}>Open Toolbay Flow</button>
+        </div>
+      )}
+      {hover && st.phase === "idle" && !bubble && !menu && hint && (
         <div className="tip">
           Hold <b>{hint}</b> to dictate · click to start hands-free
         </div>
@@ -121,7 +150,8 @@ export default function Bar() {
         }}
         onContextMenu={(e) => {
           e.preventDefault();
-          api.barAction("open");
+          api.listMics().then(setMics);
+          setMenu(!menu);
         }}
       >
         {recording && st.mode === "hands_free" && (
