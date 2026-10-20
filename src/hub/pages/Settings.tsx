@@ -178,10 +178,13 @@ export default function SettingsPage() {
 function ShortcutToggle() {
   const [on, setOn] = useState<boolean | null>(null);
   const [err, setErr] = useState("");
+  const [hub, setHub] = useState(false);
   useEffect(() => {
     api.hasDesktopShortcut().then(setOn);
+    api.appInfo().then((i) => setHub(i.fromToolbay));
   }, []);
-  if (on === null) return null;
+  // Under the Toolbay app, the hub owns the desktop shortcut.
+  if (on === null || hub) return null;
   return (
     <Row title="Desktop shortcut" desc={err || (isMac ? "A Toolbay Flow icon on your desktop." : "A Toolbay Flow icon on your desktop.")}>
       <Toggle
