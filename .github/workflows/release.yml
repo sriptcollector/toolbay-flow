@@ -1,0 +1,74 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  app:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: ""
+          - os: macos-latest
+            args: "--target aarch64-apple-darwin"
+          - os: macos-latest
+            args: "--target x86_64-apple-darwin"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+        if: matrix.os == 'windows-latest'
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Toolbay Flow ${{ github.ref_name }}"
+          releaseBody: "Free, local, open-source voice dictation. See the README for install steps."
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}
+
+  # whisper.cpp has no official macOS server binary, so build one with Metal and
+  # attach it to the fixed "engines-v1" release the app downloads from.
+  whisper-macos:
+    strategy:
+      matrix:
+        arch: [arm64, x86_64]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ggml-org/whisper.cpp
+          ref: b5454
+      - run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }}
+          cmake --build build --config Release -j --target whisper-server
+          mkdir out && cp build/bin/whisper-server out/
+          tar -czf whisper-server-macos-${{ matrix.arch }}.tar.gz -C out whisper-server
+      - uses: softprops/action-gh-release@v2
+        with:
+          repository: ${{ github.repository }}
+          tag_name: engines-v1
+          name: "Engines (macOS builds of whisper.cpp)"
+          body: "whisper-server built from ggml-org/whisper.cpp b5454 with Metal (MIT). Downloaded by Toolbay Flow on first run."
+          files: whisper-server-macos-${{ matrix.arch }}.tar.gz
+          make_latest: false
+          target_commitish: ${{ github.sha }}

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Toolbay Flow",
+  "mainBinaryName": "toolbay-flow",
+  "version": "0.1.0",
+  "identifier": "ai.toolbay.flow",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1437",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [],
+    "withGlobalTauri": false,
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "dmg", "app"],
+    "publisher": "Toolbay",
+    "homepage": "https://toolbay.ai",
+    "copyright": "MIT License",
+    "category": "Productivity",
+    "shortDescription": "Free, local voice dictation for any app",
+    "longDescription": "Toolbay Flow turns your voice into clean, formatted text in any app. Speech recognition and cleanup run on your computer with open models. Free and open source.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "12.0",
+      "infoPlist": "Info.plist"
+    }
+  }
+}
