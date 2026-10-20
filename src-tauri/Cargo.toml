@@ -37,6 +37,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 log = "0.4"
 
 [target.'cfg(windows)'.dependencies]
+mslnk = "0.1"
 uiautomation = "0.16"
 windows = { version = "0.58", features = [
   "Win32_Foundation",
@@ -53,6 +54,8 @@ windows = { version = "0.58", features = [
   "Win32_Media_Audio",
   "Win32_Media_Audio_Endpoints",
   "Win32_Security",
+  "Win32_Graphics_Dxgi",
+  "Win32_System_SystemInformation",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

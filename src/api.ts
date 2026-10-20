@@ -35,7 +35,6 @@ export interface Settings {
   launch_at_login: boolean;
   show_bar: boolean;
   sounds: boolean;
-  mute_media_while_dictating: boolean;
   microphone: string | null;
   language: string;
   speech_model: string;
@@ -56,6 +55,18 @@ export interface Settings {
   app_categories: Record<string, string>;
   restore_clipboard: boolean;
   name: string;
+  model_mode: "auto" | "manual";
+  hw_fingerprint: string;
+  auto_reason: string;
+  auto_slow_speech: boolean;
+  auto_slow_cleanup: boolean;
+  desktop_shortcut: boolean;
+}
+export interface AutoInfo {
+  hardware: { gpu_vendor: string; gpu_name: string; vram_mb: number; ram_mb: number; threads: number };
+  choice: { tier: string; speech_model: string; llm_model: string; cleanup: CleanupLevel; why: string };
+  mode: string;
+  speech_in_use: string | null;
 }
 export interface ModelRow {
   id: string;
@@ -136,6 +147,8 @@ export const api = {
   defaultShortcuts: () => invoke<Shortcut[]>("default_shortcuts"),
   listModels: () => invoke<ModelRow[]>("list_models"),
   hardware: () => invoke<Hardware>("hardware"),
+  autoInfo: () => invoke<AutoInfo>("auto_info"),
+  rerunAuto: () => invoke<void>("rerun_auto"),
   downloadModel: (id: string) => invoke<void>("download_model", { id }),
   downloadEngines: (kinds: string[]) => invoke<void>("download_engines", { kinds }),
   deleteModel: (id: string) => invoke<void>("delete_model", { id }),
@@ -167,6 +180,9 @@ export const api = {
   appInfo: () => invoke<{ version: string; fromToolbay: boolean; os: string }>("app_info"),
   openDataDir: () => invoke<void>("open_data_dir"),
   quit: () => invoke<void>("quit"),
+  toolbayAccount: () => invoke<{ name: string; handle: string; avatar_url: string | null } | null>("toolbay_account"),
+  setDesktopShortcut: (on: boolean) => invoke<void>("set_desktop_shortcut", { on }),
+  hasDesktopShortcut: () => invoke<boolean>("has_desktop_shortcut"),
 };
 
 export function on<T>(event: string, cb: (payload: T) => void): () => void {

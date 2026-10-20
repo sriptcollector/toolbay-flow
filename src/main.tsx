@@ -19,6 +19,7 @@ async function boot() {
       import("@fontsource/space-grotesk/700.css"),
       import("@fontsource/space-mono/400.css"),
     ]);
+    await import("./theme/toolbay-theme.css");
     await import("./hub/hub.css");
     const { default: Hub } = await import("./hub/Hub");
     root.render(

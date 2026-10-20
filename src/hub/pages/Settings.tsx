@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, CleanupLevel, DataPolicy, LANGUAGES, Provider } from "../../api";
 import { Page, Row, Section, Toggle, useSettings } from "../ui";
+import { isMac } from "../../keys";
 
 const LEVELS: [CleanupLevel, string, string][] = [
   ["none", "Off", "Paste exactly what was heard"],
@@ -26,14 +27,12 @@ export default function SettingsPage() {
         <Row title="Launch at login" desc="Start Flow quietly in the tray when you sign in.">
           <Toggle on={s.launch_at_login} onChange={(v) => save({ launch_at_login: v })} />
         </Row>
+        <ShortcutToggle />
         <Row title="Show the Flow bar" desc="The small pill at the bottom of your screen.">
           <Toggle on={s.show_bar} onChange={(v) => save({ show_bar: v })} />
         </Row>
         <Row title="Sounds" desc="Short tones when dictation starts and stops.">
           <Toggle on={s.sounds} onChange={(v) => save({ sounds: v })} />
-        </Row>
-        <Row title="Mute other audio while dictating" desc="Silences music and videos while you speak.">
-          <Toggle on={s.mute_media_while_dictating} onChange={(v) => save({ mute_media_while_dictating: v })} />
         </Row>
         <Row title="Keep my clipboard" desc="Put back what was on the clipboard after Flow pastes.">
           <Toggle on={s.restore_clipboard} onChange={(v) => save({ restore_clipboard: v })} />
@@ -163,5 +162,27 @@ export default function SettingsPage() {
         </Row>
       </Section>
     </Page>
+  );
+}
+
+function ShortcutToggle() {
+  const [on, setOn] = useState<boolean | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    api.hasDesktopShortcut().then(setOn);
+  }, []);
+  if (on === null) return null;
+  return (
+    <Row title="Desktop shortcut" desc={err || (isMac ? "A Toolbay Flow icon on your desktop." : "A Toolbay Flow icon on your desktop.")}>
+      <Toggle
+        on={on}
+        onChange={(v) =>
+          api
+            .setDesktopShortcut(v)
+            .then(() => setOn(v))
+            .catch((e) => setErr(String(e)))
+        }
+      />
+    </Row>
   );
 }

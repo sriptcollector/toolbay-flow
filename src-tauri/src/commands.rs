@@ -76,6 +76,31 @@ pub fn hardware(st: State<St>) -> Hardware {
     }
 }
 
+#[derive(Serialize)]
+pub struct AutoInfo {
+    hardware: crate::models::Hardware,
+    choice: crate::models::Choice,
+    mode: String,
+    speech_in_use: Option<String>,
+}
+
+#[tauri::command]
+pub fn auto_info(st: State<St>) -> AutoInfo {
+    let hw = crate::models::detect();
+    let lang = st.settings.read().language.clone();
+    AutoInfo {
+        choice: crate::models::recommend(&hw, &lang),
+        hardware: hw,
+        mode: st.settings.read().model_mode.clone(),
+        speech_in_use: crate::models::current_speech_path(&st).map(|x| x.0),
+    }
+}
+
+#[tauri::command]
+pub fn rerun_auto(st: State<St>) {
+    crate::models::auto_setup(&st);
+}
+
 #[tauri::command]
 pub async fn download_model(st: State<'_, St>, id: String) -> R<()> {
     engines::ensure_model(&st.app, &st.paths, &id).await.map_err(e)?;
@@ -241,7 +266,7 @@ pub fn hotkeys_enabled(st: State<St>, on: bool) {
 pub fn app_info(app: AppHandle) -> serde_json::Value {
     serde_json::json!({
         "version": app.package_info().version.to_string(),
-        "fromToolbay": std::env::args().any(|a| a == "--from-toolbay"),
+        "fromToolbay": crate::hub::from_hub(),
         "os": std::env::consts::OS,
     })
 }
@@ -254,7 +279,25 @@ pub fn open_data_dir(st: State<St>) {
 
 #[tauri::command]
 pub fn quit(app: AppHandle) {
-    app.exit(0);
+    crate::hub::quit(&app);
+}
+
+#[tauri::command]
+pub async fn toolbay_account() -> Option<crate::hub::Account> {
+    crate::hub::account().await
+}
+
+#[tauri::command]
+pub fn has_desktop_shortcut() -> bool {
+    crate::hub::has_desktop_shortcut()
+}
+
+#[tauri::command]
+pub fn set_desktop_shortcut(st: State<St>, on: bool) -> R<()> {
+    crate::hub::set_desktop_shortcut(on).map_err(|_| "Couldn't change the desktop shortcut. Check that your Desktop folder exists.".to_string())?;
+    let mut s = st.settings.read().clone();
+    s.desktop_shortcut = on;
+    dictation::apply_settings(&st, s).map_err(e)
 }
 
 #[allow(dead_code)]

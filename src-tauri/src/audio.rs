@@ -11,12 +11,30 @@ pub const SAMPLE_RATE: u32 = 16_000;
 
 type LevelFn = Arc<dyn Fn(f32) + Send + Sync>;
 
+/// How long the microphone stays open after a dictation, so the next one starts instantly.
+const WARM_SECS: u64 = 45;
+/// Audio kept from just before the hotkey (people often start talking as they press).
+const PREROLL_MS: u32 = 300;
+
+struct Capture {
+    raw: Vec<f32>,
+    rate: u32,
+    recording: bool,
+    on_level: Option<LevelFn>,
+    level: f32,
+    last_emit: Instant,
+}
+
 pub struct Recorder {
     stop_tx: Option<mpsc::Sender<()>>,
     handle: Option<std::thread::JoinHandle<()>>,
-    buf: Arc<Mutex<Vec<f32>>>,
-    rate: Arc<Mutex<u32>>,
+    cap: Arc<Mutex<Capture>>,
+    device: Option<Option<String>>,
+    /// 16 kHz copy of the recording, extended incrementally for streaming.
+    conv: Vec<f32>,
+    conv_pos: usize,
     pub started: Option<Instant>,
+    last_used: Instant,
 }
 
 pub fn list_devices() -> Vec<String> {
@@ -26,60 +44,82 @@ pub fn list_devices() -> Vec<String> {
         .unwrap_or_default()
 }
 
-pub fn default_device_name() -> Option<String> {
-    cpal::default_host().default_input_device().and_then(|d| d.name().ok())
-}
-
 impl Recorder {
     pub fn new() -> Self {
-        Recorder { stop_tx: None, handle: None, buf: Arc::new(Mutex::new(Vec::new())), rate: Arc::new(Mutex::new(48_000)), started: None }
+        Recorder {
+            stop_tx: None,
+            handle: None,
+            cap: Arc::new(Mutex::new(Capture { raw: vec![], rate: 48_000, recording: false, on_level: None, level: 0.0, last_emit: Instant::now() })),
+            device: None,
+            conv: vec![],
+            conv_pos: 0,
+            started: None,
+            last_used: Instant::now(),
+        }
     }
 
     pub fn is_recording(&self) -> bool {
-        self.stop_tx.is_some()
+        self.cap.lock().recording
     }
 
-    /// Starts capture on a dedicated thread (cpal streams are not Send on every platform).
-    pub fn start(&mut self, device: Option<String>, on_level: LevelFn) -> Result<()> {
-        if self.is_recording() {
-            return Ok(());
-        }
-        self.buf.lock().clear();
+    fn is_open(&self) -> bool {
+        self.stop_tx.is_some() && self.handle.as_ref().map(|h| !h.is_finished()).unwrap_or(false)
+    }
+
+    /// Opens the input stream on its own thread (cpal streams are not Send everywhere).
+    /// Shared-mode capture on the default "console" role, so Windows does not duck
+    /// other apps' audio the way it does for communication streams.
+    fn open(&mut self, device: Option<String>) -> Result<()> {
+        self.close();
         let (stop_tx, stop_rx) = mpsc::channel::<()>();
         let (ready_tx, ready_rx) = mpsc::channel::<Result<()>>();
-        let buf = self.buf.clone();
-        let rate = self.rate.clone();
+        let cap = self.cap.clone();
+        let dev_name = device.clone();
         let handle = std::thread::Builder::new().name("mic".into()).spawn(move || {
             let res = (|| -> Result<cpal::Stream> {
                 let host = cpal::default_host();
-                let dev = match &device {
+                let dev = match &dev_name {
                     Some(name) => host
                         .input_devices()?
                         .find(|d| d.name().map(|n| &n == name).unwrap_or(false))
                         .or_else(|| host.default_input_device()),
                     None => host.default_input_device(),
                 }
-                .ok_or_else(|| anyhow!("No microphone found"))?;
+                .ok_or_else(|| anyhow!("No microphone found. Plug one in, or pick another one in Settings."))?;
                 let cfg = dev.default_input_config()?;
                 let channels = cfg.channels() as usize;
-                *rate.lock() = cfg.sample_rate().0;
+                let rate = cfg.sample_rate().0;
+                cap.lock().rate = rate;
+                let preroll = (rate * PREROLL_MS / 1000) as usize;
                 let err_fn = |e| log::error!("mic stream error: {e}");
-                let mut last_emit = Instant::now();
-                let mut level = 0f32;
+                let cap2 = cap.clone();
                 let mut push = move |data: &[f32]| {
-                    let mut b = buf.lock();
+                    let mut c = cap2.lock();
                     let mut sum = 0f32;
+                    let mut n = 0usize;
                     for frame in data.chunks(channels) {
-                        let s = frame.iter().sum::<f32>() / channels as f32;
-                        sum += s * s;
-                        b.push(s);
+                        let v = frame.iter().sum::<f32>() / channels as f32;
+                        sum += v * v;
+                        n += 1;
+                        c.raw.push(v);
                     }
-                    drop(b);
-                    let rms = (sum / (data.len().max(1) / channels.max(1)).max(1) as f32).sqrt();
-                    level = level * 0.6 + rms * 0.4;
-                    if last_emit.elapsed().as_millis() >= 33 {
-                        last_emit = Instant::now();
-                        on_level((level * 8.0).min(1.0));
+                    if !c.recording {
+                        // Warm and idle: keep only the pre-roll window in memory.
+                        let len = c.raw.len();
+                        if len > preroll * 2 {
+                            c.raw.drain(..len - preroll);
+                        }
+                        return;
+                    }
+                    let rms = (sum / n.max(1) as f32).sqrt();
+                    c.level = c.level * 0.6 + rms * 0.4;
+                    if c.last_emit.elapsed().as_millis() >= 33 {
+                        c.last_emit = Instant::now();
+                        if let Some(f) = c.on_level.clone() {
+                            let l = (c.level * 8.0).min(1.0);
+                            drop(c);
+                            f(l);
+                        }
                     }
                 };
                 let stream = match cfg.sample_format() {
@@ -111,7 +151,7 @@ impl Recorder {
                         err_fn,
                         None,
                     )?,
-                    f => return Err(anyhow!("Unsupported sample format {f:?}")),
+                    f => return Err(anyhow!("This microphone uses a format Flow can't read ({f:?}). Pick another one in Settings.")),
                 };
                 stream.play()?;
                 Ok(stream)
@@ -131,26 +171,148 @@ impl Recorder {
             Ok(Ok(())) => {
                 self.stop_tx = Some(stop_tx);
                 self.handle = Some(handle);
-                self.started = Some(Instant::now());
+                self.device = Some(device);
                 Ok(())
             }
             Ok(Err(e)) => Err(e),
-            Err(_) => Err(anyhow!("Microphone did not start")),
+            Err(_) => Err(anyhow!("The microphone didn't respond. Check it's plugged in and not in use by another app.")),
         }
     }
 
-    /// Stops capture and returns 16 kHz mono samples.
-    pub fn stop(&mut self) -> Vec<f32> {
+    pub fn close(&mut self) {
         if let Some(tx) = self.stop_tx.take() {
             let _ = tx.send(());
         }
         if let Some(h) = self.handle.take() {
             let _ = h.join();
         }
-        self.started = None;
-        let raw = std::mem::take(&mut *self.buf.lock());
-        resample(&raw, *self.rate.lock(), SAMPLE_RATE)
+        self.device = None;
+        let mut c = self.cap.lock();
+        c.raw.clear();
+        c.recording = false;
     }
+
+    /// Starts recording. Reuses the warm stream when possible (instant start, with pre-roll).
+    pub fn start(&mut self, device: Option<String>, on_level: LevelFn) -> Result<()> {
+        if self.is_recording() {
+            return Ok(());
+        }
+        let reuse = self.is_open() && self.device.as_ref() == Some(&device);
+        if !reuse {
+            self.open(device)?;
+        }
+        {
+            let mut c = self.cap.lock();
+            c.on_level = Some(on_level);
+            c.recording = true;
+            c.level = 0.0;
+            if !reuse {
+                c.raw.clear();
+            }
+        }
+        self.conv.clear();
+        self.conv_pos = 0;
+        self.started = Some(Instant::now());
+        self.last_used = Instant::now();
+        Ok(())
+    }
+
+    /// 16 kHz samples recorded so far (for transcribing while the user still talks).
+    pub fn snapshot(&mut self) -> Vec<f32> {
+        let (chunk, rate) = {
+            let c = self.cap.lock();
+            if self.conv_pos > c.raw.len() {
+                self.conv_pos = 0;
+            }
+            (c.raw[self.conv_pos..].to_vec(), c.rate)
+        };
+        self.conv_pos += chunk.len();
+        self.conv.extend(resample(&chunk, rate, SAMPLE_RATE));
+        self.conv.clone()
+    }
+
+    /// Stops recording and returns 16 kHz mono samples. The stream stays warm for a while.
+    pub fn stop(&mut self) -> Vec<f32> {
+        if !self.is_recording() {
+            return vec![];
+        }
+        let _ = self.snapshot();
+        {
+            let mut c = self.cap.lock();
+            c.recording = false;
+            c.on_level = None;
+            c.raw.clear();
+        }
+        self.conv_pos = 0;
+        self.started = None;
+        self.last_used = Instant::now();
+        std::mem::take(&mut self.conv)
+    }
+
+    /// Closes the microphone once it has been idle for a while (called periodically).
+    pub fn close_if_idle(&mut self) {
+        if self.is_open() && !self.is_recording() && self.last_used.elapsed().as_secs() >= WARM_SECS {
+            self.close();
+        }
+    }
+}
+
+/// Trims leading/trailing silence and shortens long pauses, so the speech model
+/// has less audio to chew through. Keeps a little padding around speech.
+pub fn compact_silence(samples: &[f32]) -> Vec<f32> {
+    let frame = 320; // 20 ms at 16 kHz
+    let frames: Vec<bool> = samples
+        .chunks(frame)
+        .map(|c| (c.iter().map(|s| s * s).sum::<f32>() / c.len() as f32).sqrt() > 0.008)
+        .collect();
+    let first = frames.iter().position(|v| *v);
+    let last = frames.iter().rposition(|v| *v);
+    let (Some(first), Some(last)) = (first, last) else { return samples.to_vec() };
+    let pad = 10; // 200 ms
+    let start = first.saturating_sub(pad);
+    let end = (last + pad + 1).min(frames.len());
+    let max_gap = 25; // keep at most 500 ms of any pause
+    let mut out = Vec::with_capacity(samples.len());
+    let mut gap = 0;
+    for i in start..end {
+        if frames[i] {
+            gap = 0;
+        } else {
+            gap += 1;
+            if gap > max_gap {
+                continue;
+            }
+        }
+        let a = i * frame;
+        let b = ((i + 1) * frame).min(samples.len());
+        out.extend_from_slice(&samples[a..b]);
+    }
+    out
+}
+
+/// Finds a pause to cut at for streaming: the end of the last >=350 ms silence
+/// that starts after `from` and ends at least 0.6 s before the end of the audio.
+pub fn find_cut(samples: &[f32], from: usize) -> Option<usize> {
+    let frame = 320;
+    let need = 18; // 360 ms
+    let end_guard = samples.len().saturating_sub(9600);
+    let mut run = 0;
+    let mut best = None;
+    let mut i = from;
+    while i + frame <= end_guard {
+        let c = &samples[i..i + frame];
+        let quiet = (c.iter().map(|s| s * s).sum::<f32>() / frame as f32).sqrt() < 0.008;
+        if quiet {
+            run += 1;
+            if run >= need {
+                best = Some(i + frame - (need / 2) * frame);
+            }
+        } else {
+            run = 0;
+        }
+        i += frame;
+    }
+    best
 }
 
 /// Band-limited-enough resampler: box low-pass then linear interpolation.

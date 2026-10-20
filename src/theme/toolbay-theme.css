@@ -1,0 +1,31 @@
+/* Toolbay app theme tokens, shared by the hub (toolbay-desktop) and every tool (toolbay-flow, ...).
+   Source: toolbay.ai dark theme, agentmarketplace/src/app/globals.css. Fonts: Space Grotesk (UI),
+   Space Mono (meta, keys, versions); bundle them (@fontsource/space-grotesk, @fontsource/space-mono). */
+:root {
+  --tb-canvas: #0a0a0a;        /* window background */
+  --tb-canvas-deep: #050505;   /* sidebar, inset wells */
+  --tb-card: #141414;          /* cards, inputs */
+  --tb-card-hover: #1a1a1a;
+  --tb-line: #232323;          /* hairlines */
+  --tb-line-strong: #2f2f2f;   /* input borders */
+  --tb-text-bright: #fafafa;   /* headings */
+  --tb-text: #ededed;          /* primary text */
+  --tb-body: #d4d4d4;          /* body copy */
+  --tb-muted: #909090;         /* secondary */
+  --tb-faint: #7e7e7e;         /* captions */
+  --tb-accent: #fafafa;        /* primary button fill */
+  --tb-accent-on: #0a0a0a;     /* text on primary button */
+  --tb-chip: #262626;          /* filled chips/badges */
+  --tb-premium: #8b6dff;       /* the one colour: progress, focus glow, "installed" */
+  --tb-premium-bright: #a488ff;
+  --tb-premium-tint: rgba(139, 109, 255, 0.12);
+  --tb-premium-line: rgba(139, 109, 255, 0.42);
+  --tb-danger: #f85149;
+  --tb-radius-sm: 6px;
+  --tb-radius: 10px;           /* buttons, inputs */
+  --tb-radius-lg: 14px;        /* cards, tiles */
+  --tb-shadow-tile: 0 16px 34px -22px #000c;
+  --tb-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --tb-font: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --tb-mono: "Space Mono", ui-monospace, monospace;
+}

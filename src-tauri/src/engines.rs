@@ -33,6 +33,10 @@ macro_rules! speech {
 }
 
 pub const MODELS: &[ModelInfo] = &[
+    speech!("base.en-q5", "Base (English, compact)", "ggml-base.en-q5_1.bin", 60, true, "Starter model, fast on any computer"),
+    speech!("base-q5", "Base (multilingual, compact)", "ggml-base-q5_1.bin", 60, false, "Starter model, 99 languages"),
+    speech!("small.en-q5", "Small (English, compact)", "ggml-small.en-q5_1.bin", 190, true, "Good accuracy on a CPU"),
+    speech!("small-q5", "Small (multilingual, compact)", "ggml-small-q5_1.bin", 190, false, "Good accuracy on a CPU, 99 languages"),
     speech!("tiny.en", "Tiny (English)", "ggml-tiny.en.bin", 78, true, "Fastest, lowest accuracy"),
     speech!("tiny", "Tiny (multilingual)", "ggml-tiny.bin", 78, false, "Fastest, lowest accuracy"),
     speech!("base.en", "Base (English)", "ggml-base.en.bin", 148, true, "Fast on any CPU"),

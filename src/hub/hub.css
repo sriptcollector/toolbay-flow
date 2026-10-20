@@ -1,27 +1,27 @@
 :root {
-  /* Toolbay app theme (shared with the Toolbay hub). */
+  /* Flow's names for the shared Toolbay theme (src/theme/toolbay-theme.css). */
   color-scheme: dark;
-  --bg: #050505;
-  --surface: #0a0a0a;
-  --card: #141414;
-  --fill: #1a1a1a;
-  --ink: #fafafa;
-  --ink-2: #d4d4d4;
-  --muted: #909090;
-  --line: #232323;
+  --bg: var(--tb-canvas-deep);
+  --surface: var(--tb-canvas);
+  --card: var(--tb-card);
+  --fill: var(--tb-card-hover);
+  --ink: var(--tb-text-bright);
+  --ink-2: var(--tb-body);
+  --muted: var(--tb-muted);
+  --line: var(--tb-line);
   --line-2: #1b1b1b;
-  --line-strong: #2f2f2f;
-  --accent: #8b6dff;
-  --accent-ink: #a488ff;
-  --accent-soft: rgba(139, 109, 255, 0.12);
-  --on-primary: #0a0a0a;
+  --line-strong: var(--tb-line-strong);
+  --accent: var(--tb-premium);
+  --accent-ink: var(--tb-premium-bright);
+  --accent-soft: var(--tb-premium-tint);
+  --on-primary: var(--tb-accent-on);
   --ok: #3fb950;
   --warn: #d29922;
-  --danger: #f85149;
-  --r: 14px;
-  --font: "Space Grotesk", "Segoe UI Variable Text", "Segoe UI", -apple-system, system-ui, sans-serif;
-  --display: "Space Grotesk", "Segoe UI Variable Display", -apple-system, system-ui, sans-serif;
-  --mono: "Space Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+  --danger: var(--tb-danger);
+  --r: var(--tb-radius-lg);
+  --font: var(--tb-font);
+  --display: var(--tb-font);
+  --mono: var(--tb-mono);
   color: var(--ink);
   background: var(--bg);
   font-family: var(--font);
@@ -1219,4 +1219,85 @@ blockquote {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* shortcut recorder */
+.keybox {
+  min-width: 150px;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 10px;
+  border: 1px dashed var(--line-strong);
+  background: var(--card);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.keybox:hover {
+  border-color: var(--accent);
+}
+.keybox.rec {
+  border-style: solid;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.keybox.saved {
+  border-style: solid;
+  border-color: var(--ok);
+}
+.keybox .hint {
+  color: var(--accent-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.disclosure {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 4px 2px;
+  margin: 4px 0 14px;
+}
+.disclosure:hover {
+  color: var(--ink);
+}
+.pad-row.col {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+/* "Inspired by" credit */
+.credit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.credit-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.credit-logo {
+  height: 12px;
+  width: auto;
+  /* The official mark is dark; show it on a light chip so it stays unmodified and legible. */
+  background: #fafaf0;
+  padding: 3px 6px;
+  border-radius: 5px;
+  box-sizing: content-box;
+}
+.credit .sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+.credit.compact {
+  font-size: 11px;
 }

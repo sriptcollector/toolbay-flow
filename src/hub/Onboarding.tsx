@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { api, Hardware, LANGUAGES, ModelRow, on } from "../api";
+import { api, LANGUAGES, on } from "../api";
 import { comboLabel } from "../keys";
 import { Logo } from "./Hub";
-import { ProgressBar, useProgress } from "./pages/Models";
 import { useRecorder } from "./pages/Shortcuts";
-import { fmtBytes, Keys, Toggle, useSettings } from "./ui";
+import { Keys, Toggle, useSettings } from "./ui";
 
-const STEPS = ["Welcome", "Privacy", "Microphone", "Models", "Shortcut", "Language", "Try it"] as const;
+const STEPS = ["Welcome", "Privacy", "Microphone", "Shortcut", "Language", "Try it"] as const;
 
 export default function Onboarding({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState(0);
@@ -34,9 +33,8 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
         {step === 0 && <Welcome next={next} />}
         {step === 1 && <Privacy next={next} back={back} />}
         {step === 2 && <Mic next={next} back={back} />}
-        {step === 3 && <ModelsStep next={next} back={back} />}
-        {step === 4 && <ShortcutStep next={next} back={back} />}
-        {step === 5 && (
+        {step === 3 && <ShortcutStep next={next} back={back} />}
+        {step === 4 && (
           <div className="ob-card">
             <h1>Which language do you speak?</h1>
             <p>Pick one for the best accuracy, or let Flow detect it each time.</p>
@@ -53,7 +51,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
             <Nav back={back} next={next} />
           </div>
         )}
-        {step === 6 && <TryIt back={back} finish={finish} />}
+        {step === 5 && <TryIt back={back} finish={finish} />}
       </div>
     </div>
   );
@@ -162,108 +160,6 @@ function Mic({ next, back }: { next: () => void; back: () => void }) {
       {err && <p className="warn">{err}</p>}
       <p className="muted small">{heard ? "Sounds good." : "Waiting for sound…"}</p>
       <Nav back={back} next={next} nextLabel={heard ? "It works" : "Continue"} />
-    </div>
-  );
-}
-
-function ModelsStep({ next, back }: { next: () => void; back: () => void }) {
-  const [s, save] = useSettings();
-  const [hw, setHw] = useState<Hardware | null>(null);
-  const [models, setModels] = useState<ModelRow[]>([]);
-  const [speech, setSpeech] = useState("");
-  const [llm, setLlm] = useState<string>("");
-  const [phase, setPhase] = useState<"pick" | "downloading" | "ready" | "error">("pick");
-  const [err, setErr] = useState("");
-  const prog = useProgress();
-
-  useEffect(() => {
-    Promise.all([api.hardware(), api.listModels(), api.getSettings()]).then(([h, m, st]) => {
-      setHw(h);
-      setModels(m);
-      const strong = h.nvidia || h.platform === "macos";
-      const english = st.language === "en";
-      setSpeech(strong ? "large-v3-turbo-q5" : english ? "small.en" : "small");
-      setLlm(strong ? "qwen3-4b-instruct" : "qwen3-1.7b");
-    });
-  }, []);
-  if (!s || !hw) return null;
-
-  const total = models.filter((m) => m.id === speech || m.id === llm).reduce((a, m) => a + (m.downloaded ? 0 : m.size_mb), 0);
-
-  const start = async () => {
-    setPhase("downloading");
-    setErr("");
-    try {
-      await save({ speech_model: speech, local_llm_model: llm || s.local_llm_model, cleanup_level: llm ? "medium" : "light" });
-      await api.downloadEngines(llm ? ["whisper", "llama"] : ["whisper"]);
-      await api.downloadModel(speech);
-      if (llm) await api.downloadModel(llm);
-      setPhase("ready");
-      api.startEngines().catch(() => {});
-    } catch (e) {
-      setErr(String(e));
-      setPhase("error");
-    }
-  };
-
-  const speechModels = models.filter((m) => m.kind === "speech");
-  const llms = models.filter((m) => m.kind === "llm");
-
-  return (
-    <div className="ob-card wide">
-      <h1>Download the AI models</h1>
-      <p>
-        One-time download, then Flow works offline.{" "}
-        {hw.nvidia ? "We found an NVIDIA GPU, so we picked the most accurate models." : `Picked for a ${hw.threads}-thread CPU. You can switch any time in Models.`}
-      </p>
-      <div className="pick">
-        <label>
-          Speech recognition
-          <select value={speech} disabled={phase !== "pick"} onChange={(e) => setSpeech(e.target.value)}>
-            {speechModels.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label} · {fmtBytes(m.size_mb)}
-                {m.downloaded ? " · downloaded" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Cleanup and formatting
-          <select value={llm} disabled={phase !== "pick"} onChange={(e) => setLlm(e.target.value)}>
-            {llms.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label} · {fmtBytes(m.size_mb)}
-                {m.downloaded ? " · downloaded" : ""}
-              </option>
-            ))}
-            <option value="">No AI cleanup (rules only, no download)</option>
-          </select>
-        </label>
-      </div>
-      {phase !== "pick" && (
-        <div className="dl">
-          {[prog["whisper-cpu"], prog["whisper-cuda"], prog["whisper-metal"], prog[speech], prog["llama-cpu"], prog["llama-vulkan"], prog["llama-metal"], prog[llm]].map(
-            (p, i) => p && p.stage !== "done" && <div key={i}><span className="muted small">{p.id}</span><ProgressBar p={p} /></div>,
-          )}
-          {phase === "ready" && <p className="ok">All set. Models are on this computer.</p>}
-          {phase === "error" && <p className="warn">{err}</p>}
-        </div>
-      )}
-      <div className="ob-nav">
-        <button className="btn ghost" onClick={back} disabled={phase === "downloading"}>
-          Back
-        </button>
-        {phase === "pick" || phase === "error" ? (
-          <button className="btn primary big" onClick={start}>
-            {total ? `Download ${fmtBytes(total)}` : "Continue"}
-          </button>
-        ) : (
-          <button className="btn primary big" disabled={phase !== "ready"} onClick={next}>
-            {phase === "ready" ? "Continue" : "Downloading…"}
-          </button>
-        )}
-      </div>
     </div>
   );
 }

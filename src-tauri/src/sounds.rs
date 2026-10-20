@@ -1,5 +1,5 @@
-//! Short synthesized UI sounds (no audio files shipped) and muting other audio
-//! while dictating.
+//! Short synthesized UI sounds (no audio files shipped). Flow never mutes,
+//! ducks or pauses other apps' audio.
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
@@ -85,53 +85,4 @@ pub fn play(s: Sound) {
             Ok(())
         })();
     });
-}
-
-/// Mutes the default speakers while dictating and restores the previous state.
-pub mod media {
-    #[cfg(windows)]
-    mod imp {
-        use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
-        use windows::Win32::Media::Audio::{eConsole, eRender, IMMDeviceEnumerator, MMDeviceEnumerator};
-        use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED};
-
-        fn endpoint() -> Option<IAudioEndpointVolume> {
-            unsafe {
-                let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-                let en: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
-                let dev = en.GetDefaultAudioEndpoint(eRender, eConsole).ok()?;
-                dev.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None).ok()
-            }
-        }
-
-        /// Returns true if we muted (so we must unmute later).
-        pub fn mute() -> bool {
-            let Some(ep) = endpoint() else { return false };
-            unsafe {
-                let was = ep.GetMute().map(|b| b.as_bool()).unwrap_or(true);
-                if !was {
-                    return ep.SetMute(true, std::ptr::null()).is_ok();
-                }
-            }
-            false
-        }
-
-        pub fn unmute() {
-            if let Some(ep) = endpoint() {
-                unsafe {
-                    let _ = ep.SetMute(false, std::ptr::null());
-                }
-            }
-        }
-    }
-
-    #[cfg(not(windows))]
-    mod imp {
-        pub fn mute() -> bool {
-            false
-        }
-        pub fn unmute() {}
-    }
-
-    pub use imp::{mute, unmute};
 }

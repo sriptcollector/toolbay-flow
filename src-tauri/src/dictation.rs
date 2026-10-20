@@ -8,7 +8,7 @@ use crate::hotkeys::{self, HotkeyEvent};
 use crate::llm::{self, CleanupInput, Llm};
 use crate::paste;
 use crate::settings::{self, Action, CleanupLevel, DataPolicy, LlmProvider, Settings, Style};
-use crate::sounds::{self, media, Sound};
+use crate::sounds::{self, Sound};
 use crate::textproc;
 use anyhow::{anyhow, Result};
 use parking_lot::{Mutex, RwLock};
@@ -40,7 +40,7 @@ struct Session {
     started: Instant,
     ctx: Arc<Mutex<Option<FocusContext>>>,
     last_tap_up: Option<Instant>,
-    muted: bool,
+    stream: Arc<Mutex<StreamState>>,
 }
 
 pub struct State {
@@ -99,7 +99,7 @@ impl State {
                 started: Instant::now(),
                 ctx: Arc::new(Mutex::new(None)),
                 last_tap_up: None,
-                muted: false,
+                stream: Arc::new(Mutex::new(StreamState::default())),
             }),
             hk,
             generation: AtomicU64::new(0),
@@ -121,16 +121,19 @@ impl State {
 
 pub async fn ensure_whisper(st: &St) -> Result<String> {
     let _g = st.engine_lock.lock().await;
-    let (model_id, use_gpu) = {
-        let s = st.settings.read();
-        (s.speech_model.clone(), s.use_gpu)
-    };
-    let m = engines::model(&model_id).ok_or_else(|| anyhow!("Unknown speech model"))?;
-    let model_path = st.paths.model_path(m);
-    if !model_path.exists() {
-        return Err(anyhow!("Speech model not downloaded yet. Open Toolbay Flow > Models."));
+    let use_gpu = st.settings.read().use_gpu;
+    let (model_id, model_path) = crate::models::current_speech_path(st).ok_or_else(|| anyhow!("Flow is still getting its speech model. Try again in a moment."))?;
+    // Prefer the GPU engine once it is downloaded; until then use the bundled CPU one.
+    let mut eng = engines::pick_engine("whisper", use_gpu).ok_or_else(|| anyhow!("No speech engine for this platform"))?;
+    let mut exe = st.paths.engine_exe(eng).or_else(|| crate::models::bundled_engine_exe(st, eng));
+    if exe.is_none() {
+        if let Some(cpu) = engines::pick_engine("whisper", false) {
+            if let Some(b) = crate::models::bundled_engine_exe(st, cpu) {
+                eng = cpu;
+                exe = Some(b);
+            }
+        }
     }
-    let eng = engines::pick_engine("whisper", use_gpu).ok_or_else(|| anyhow!("No speech engine for this platform"))?;
     let key = format!("{}|{}", eng.id, model_id);
     {
         let mut w = st.engines.whisper.lock();
@@ -141,7 +144,10 @@ pub async fn ensure_whisper(st: &St) -> Result<String> {
         }
         *w = None;
     }
-    let exe = engines::ensure_engine(&st.app, &st.paths, eng).await?;
+    let exe = match exe {
+        Some(e) => e,
+        None => engines::ensure_engine(&st.app, &st.paths, eng).await?,
+    };
     let mut args = vec![
         "-m".to_string(),
         model_path.to_string_lossy().to_string(),
@@ -169,10 +175,7 @@ pub async fn ensure_llama(st: &St) -> Result<String> {
         (s.local_llm_model.clone(), s.use_gpu)
     };
     let m = engines::model(&model_id).ok_or_else(|| anyhow!("Unknown cleanup model"))?;
-    let model_path = st.paths.model_path(m);
-    if !model_path.exists() {
-        return Err(anyhow!("Cleanup model not downloaded"));
-    }
+    let model_path = crate::models::model_file(st, m).ok_or_else(|| anyhow!("The AI cleanup model is still downloading"))?;
     let eng = engines::pick_engine("llama", use_gpu).ok_or_else(|| anyhow!("No cleanup engine for this platform"))?;
     let key = format!("{}|{}", eng.id, model_id);
     {
@@ -356,10 +359,8 @@ pub fn start(st: &St, mode: Mode) {
         return;
     }
     let s = st.settings.read().clone();
-    let m = engines::model(&s.speech_model);
-    if m.map(|m| !st.paths.model_path(m).exists()).unwrap_or(true) {
-        st.bar("error", None, Some("Download a speech model first".into()));
-        crate::show_hub(&st.app, Some("models"));
+    if crate::models::current_speech_path(st).is_none() {
+        st.bar("notice", None, Some("Flow is still getting ready. Try again in a moment.".into()));
         return;
     }
     let ctx_slot: Arc<Mutex<Option<FocusContext>>> = Arc::new(Mutex::new(None));
@@ -376,9 +377,10 @@ pub fn start(st: &St, mode: Mode) {
     }));
     if let Err(e) = res {
         sounds::play(Sound::Error);
-        st.bar("error", None, Some(format!("Microphone: {e}")));
+        st.bar("error", None, Some(format!("{e}")));
         return;
     }
+    let stream = Arc::new(Mutex::new(StreamState::default()));
     {
         let mut ss = st.session.lock();
         ss.phase = Phase::Recording;
@@ -386,31 +388,23 @@ pub fn start(st: &St, mode: Mode) {
         ss.started = Instant::now();
         ss.ctx = ctx_slot;
         ss.last_tap_up = None;
-        ss.muted = false;
+        ss.stream = stream.clone();
     }
     st.hk.dismiss_armed.store(true, Ordering::Relaxed);
     if s.sounds {
         sounds::play(if mode == Mode::HandsFree { Sound::Lock } else { Sound::Start });
     }
     st.bar("recording", Some(mode), None);
-    if s.mute_media_while_dictating {
-        let st2 = st.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(250));
-            let still = st2.session.lock().phase == Phase::Recording;
-            if still && media::mute() {
-                st2.session.lock().muted = true;
-            }
-        });
-    }
-    // Make sure the speech engine is warm while the user talks.
+    let gen = st.generation.load(Ordering::SeqCst);
+    // Transcribe finished sentences while the user is still talking, so only the
+    // last few seconds are left when they let go.
     let st2 = st.clone();
     tauri::async_runtime::spawn(async move {
         let _ = ensure_whisper(&st2).await;
+        stream_loop(st2, stream, gen).await;
     });
     // Safety stop for forgotten hands-free sessions.
     let st3 = st.clone();
-    let gen = st.generation.load(Ordering::SeqCst);
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_secs(20 * 60));
         if st3.generation.load(Ordering::SeqCst) == gen && st3.session.lock().phase == Phase::Recording {
@@ -419,17 +413,53 @@ pub fn start(st: &St, mode: Mode) {
     });
 }
 
-fn unmute_if_needed(st: &St) {
-    let mut ss = st.session.lock();
-    if ss.muted {
-        ss.muted = false;
-        media::unmute();
+/// Progress of streaming transcription for the current recording.
+#[derive(Default)]
+pub struct StreamState {
+    /// 16 kHz samples already transcribed.
+    committed: usize,
+    parts: Vec<String>,
+    busy: bool,
+}
+
+async fn stream_loop(st: St, stream: Arc<Mutex<StreamState>>, gen: u64) {
+    const MIN_CHUNK: usize = 16_000 * 4;
+    loop {
+        tokio::time::sleep(Duration::from_millis(350)).await;
+        if st.generation.load(Ordering::SeqCst) != gen || st.session.lock().phase != Phase::Recording {
+            return;
+        }
+        let snap = st.rec.lock().snapshot();
+        let from = stream.lock().committed;
+        if snap.len() < from + MIN_CHUNK {
+            continue;
+        }
+        let Some(cut) = audio::find_cut(&snap, from + MIN_CHUNK - 16_000) else { continue };
+        if cut <= from {
+            continue;
+        }
+        let prev = stream.lock().parts.join(" ");
+        stream.lock().busy = true;
+        let text = transcribe_with(&st, &snap[from..cut], &prev).await;
+        let mut s = stream.lock();
+        s.busy = false;
+        match text {
+            Ok(t) => {
+                if !t.trim().is_empty() {
+                    s.parts.push(t);
+                }
+                s.committed = cut;
+            }
+            Err(e) => {
+                log::warn!("streaming chunk failed: {e:#}");
+                return;
+            }
+        }
     }
 }
 
 fn discard(st: &St, with_sound: bool) {
     let _ = st.rec.lock().stop();
-    unmute_if_needed(st);
     st.session.lock().phase = Phase::Idle;
     st.hk.dismiss_armed.store(false, Ordering::Relaxed);
     if with_sound && st.settings.read().sounds {
@@ -444,22 +474,21 @@ pub fn cancel(st: &St) {
 }
 
 pub fn stop(st: &St) {
+    let released = Instant::now();
     let mut samples = st.rec.lock().stop();
+    let (mode, ctx_slot, dur, stream) = {
+        let mut ss = st.session.lock();
+        ss.phase = Phase::Processing;
+        (ss.mode, ss.ctx.clone(), ss.started.elapsed(), ss.stream.clone())
+    };
     // Developer hook for automated end-to-end tests: replace the microphone
     // recording with a 16 kHz mono WAV file.
     if let Ok(p) = std::env::var("TOOLBAY_FLOW_TEST_AUDIO") {
-        if let Ok(bytes) = std::fs::read(&p) {
-            if let Ok(s) = audio::from_wav(&bytes) {
-                samples = s;
-            }
+        if let Ok(s) = std::fs::read(&p).map_err(anyhow::Error::from).and_then(|b| audio::from_wav(&b)) {
+            samples = s;
+            *stream.lock() = StreamState::default();
         }
     }
-    unmute_if_needed(st);
-    let (mode, ctx_slot, dur) = {
-        let mut ss = st.session.lock();
-        ss.phase = Phase::Processing;
-        (ss.mode, ss.ctx.clone(), ss.started.elapsed())
-    };
     if st.settings.read().sounds {
         sounds::play(Sound::Stop);
     }
@@ -467,17 +496,36 @@ pub fn stop(st: &St) {
     let gen = st.generation.load(Ordering::SeqCst);
     let st2 = st.clone();
     tauri::async_runtime::spawn(async move {
-        // Wait (briefly) for the context captured at start.
-        let mut ctx = None;
-        for _ in 0..40 {
-            if let Some(c) = ctx_slot.lock().clone() {
-                ctx = Some(c);
-                break;
+        let res = async {
+            if !audio::has_speech(&samples) {
+                return Ok(None);
             }
-            tokio::time::sleep(Duration::from_millis(20)).await;
+            // Finish any chunk in flight, then transcribe only the tail.
+            for _ in 0..500 {
+                if !stream.lock().busy {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            let (committed, parts) = {
+                let s = stream.lock();
+                (s.committed.min(samples.len()), s.parts.clone())
+            };
+            let prev = parts.join(" ");
+            let tail = &samples[committed..];
+            let tail_text = if audio::has_speech(tail) || committed == 0 { transcribe_with(&st2, tail, &prev).await? } else { String::new() };
+            let raw = [prev, tail_text].iter().filter(|t| !t.trim().is_empty()).cloned().collect::<Vec<_>>().join(" ");
+            let mut ctx = None;
+            for _ in 0..40 {
+                if let Some(c) = ctx_slot.lock().clone() {
+                    ctx = Some(c);
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            process(&st2, raw, samples, mode, ctx.unwrap_or_default(), dur, gen, released).await
         }
-        let ctx = ctx.unwrap_or_default();
-        let res = process(&st2, samples, mode, ctx, dur, gen).await;
+        .await;
         let current = st2.generation.load(Ordering::SeqCst) == gen;
         st2.session.lock().phase = Phase::Idle;
         st2.hk.dismiss_armed.store(false, Ordering::Relaxed);
@@ -492,33 +540,55 @@ pub fn stop(st: &St) {
                 if st2.settings.read().sounds {
                     sounds::play(Sound::Error);
                 }
-                st2.bar("error", None, Some(short_err(&e)));
+                st2.bar("error", None, Some(friendly_err(&e)));
             }
         }
     });
 }
 
-fn short_err(e: &anyhow::Error) -> String {
-    let s = format!("{e}");
-    s.chars().take(90).collect()
+/// Error text for people, not developers: what happened and what to do.
+fn friendly_err(e: &anyhow::Error) -> String {
+    let s = format!("{e:#}").to_lowercase();
+    if s.contains("connect") || s.contains("engine did not become ready") || s.contains("timed out") {
+        "Flow's speech engine is restarting. Try again in a few seconds.".into()
+    } else if s.contains("microphone") {
+        format!("{e}")
+    } else if s.contains("api key") || s.contains("401") || s.contains("403") {
+        "Your cloud AI key was refused. Check it in Settings > Cleanup, or switch back to On this computer.".into()
+    } else {
+        let t = format!("{e}");
+        t.chars().take(110).collect()
+    }
 }
 
 /// Transcribe samples with the local speech engine.
 pub async fn transcribe(st: &St, samples: &[f32]) -> Result<String> {
+    transcribe_with(st, samples, "").await
+}
+
+/// Transcribe, giving the speech model the user's vocabulary and the text so far.
+pub async fn transcribe_with(st: &St, samples: &[f32], previous: &str) -> Result<String> {
     let base = ensure_whisper(st).await?;
     let (lang, vocab) = {
         let s = st.settings.read();
         let dict = st.db.list_dict(false).unwrap_or_default();
-        (s.language.clone(), textproc::vocabulary_prompt(&dict, 600))
+        (s.language.clone(), textproc::vocabulary_prompt(&dict, 400))
     };
-    let mut s = samples.to_vec();
+    let mut s = audio::compact_silence(samples);
     audio::normalize(&mut s);
     // Whisper is more reliable with a little silence on both sides.
-    let mut padded = vec![0f32; 4800];
+    let mut padded = vec![0f32; 3200];
     padded.extend_from_slice(&s);
-    padded.extend(std::iter::repeat(0f32).take(4800));
+    padded.extend(std::iter::repeat(0f32).take(3200));
     let wav = audio::to_wav(&padded);
-    let raw = llm::transcribe(&base, wav, &lang, &vocab).await?;
+    let mut prompt = vocab;
+    if !previous.is_empty() {
+        if !prompt.is_empty() {
+            prompt.push_str(". ");
+        }
+        prompt.push_str(&llm::tail(previous, 300));
+    }
+    let raw = llm::transcribe(&base, wav, &lang, &prompt).await?;
     Ok(textproc::strip_artifacts(&raw))
 }
 
@@ -545,6 +615,8 @@ pub async fn format_text(st: &St, raw: &str, ctx: &FocusContext) -> Result<Strin
     let mut text = match s.cleanup_level {
         CleanupLevel::None => raw.trim().to_string(),
         CleanupLevel::Light => textproc::rule_cleanup(raw, &style),
+        // One to three words: rules are instant and an LLM adds nothing.
+        CleanupLevel::Medium | CleanupLevel::High if raw.split_whitespace().count() <= 3 => textproc::rule_cleanup(raw, &style),
         CleanupLevel::Medium | CleanupLevel::High => {
             let vocab = textproc::vocabulary_prompt(&dict, 400);
             let input = CleanupInput {
@@ -561,7 +633,7 @@ pub async fn format_text(st: &St, raw: &str, ctx: &FocusContext) -> Result<Strin
                 name: &s.name,
             };
             let (system, msgs) = llm::cleanup_messages(&input);
-            let max_tokens = (raw.split_whitespace().count() as u32 * 3 + 64).min(2048);
+            let max_tokens = (raw.split_whitespace().count() as u32 * 2 + 48).min(1500);
             let out = match llm_for(st).await {
                 Ok(l) => l.chat(&system, &msgs, max_tokens, Duration::from_secs(20)).await,
                 Err(e) => Err(e),
@@ -631,14 +703,11 @@ fn join_with_context(text: &str, before: &str, used_llm: bool) -> String {
     t
 }
 
-async fn process(st: &St, samples: Vec<f32>, mode: Mode, ctx: FocusContext, dur: Duration, gen: u64) -> Result<Option<String>> {
-    if !audio::has_speech(&samples) {
-        return Ok(None);
-    }
-    let t0 = Instant::now();
+#[allow(clippy::too_many_arguments)]
+async fn process(st: &St, raw: String, samples: Vec<f32>, mode: Mode, ctx: FocusContext, dur: Duration, gen: u64, released: Instant) -> Result<Option<String>> {
+    let speech_ms = released.elapsed().as_millis() as u64;
     let keep_audio = st.settings.read().keep_audio;
     let audio_bytes = if keep_audio { Some(audio::to_wav(&samples)) } else { None };
-    let raw = transcribe(st, &samples).await?;
     if raw.trim().is_empty() {
         return Ok(None);
     }
@@ -666,7 +735,10 @@ async fn process(st: &St, samples: Vec<f32>, mode: Mode, ctx: FocusContext, dur:
     let restore = st.settings.read().restore_clipboard;
     let t2 = text.clone();
     tokio::task::spawn_blocking(move || paste::paste(&t2, restore)).await??;
-    let latency = t0.elapsed().as_millis() as i64;
+    // Release-to-paste latency, the number that makes dictation feel instant or not.
+    let latency = released.elapsed().as_millis() as i64;
+    let cleanup_ms = (latency as u64).saturating_sub(speech_ms);
+    crate::models::record_latency(st, (samples.len() / 16) as u64, speech_ms, if mode == Mode::Command { None } else { Some(cleanup_ms) });
 
     let policy = st.settings.read().data_policy.clone();
     let mut hid = 0;
@@ -790,7 +862,7 @@ pub fn transform(st: &St, i: usize) {
         st.session.lock().phase = Phase::Idle;
         match res {
             Ok(name) => st.bar("done", None, Some(name)),
-            Err(e) => st.bar("error", None, Some(short_err(&e))),
+            Err(e) => st.bar("error", None, Some(friendly_err(&e))),
         }
     });
 }
@@ -854,6 +926,12 @@ pub fn apply_settings(st: &St, new: Settings) -> Result<()> {
     }
     *st.settings.write() = new;
     Ok(())
+}
+
+pub fn mic_idle_tick(st: &St) {
+    if !st.mic_test.load(Ordering::Relaxed) {
+        st.rec.lock().close_if_idle();
+    }
 }
 
 pub fn hk_enabled(st: &St, on: bool) {

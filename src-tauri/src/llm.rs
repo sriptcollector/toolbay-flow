@@ -163,7 +163,7 @@ Rules:
 3. Remove filler sounds and words used as filler (um, uh, er, "like", "you know", "I mean", "sort of"), stutters, accidental repeats and abandoned false starts.
 4. Self-corrections: when the user corrects themselves ("at 6, no wait, 7", "Tuesday, actually Wednesday", "scratch that", "I mean"), keep only the corrected version.
 5. Spoken formatting commands become formatting: "comma", "period", "question mark", "new line", "new paragraph", "bullet point", "open/close quote". Do not output those words.
-6. When the user lists several items ("first... second...", "one... two...", or several parallel items introduced by a colon), put each item on its own line as a numbered or "- " bulleted list.
+6. When the user lists several short items ("first... second...", "one... two...", or a few words each after a colon), put each item on its own line as a numbered or "- " bulleted list. Otherwise keep normal sentences together in one paragraph; do not add line breaks the user did not ask for.
 7. Write numbers, times, dates, money, emails and URLs the way people type them ("3:30 pm", "$20", "jane@example.com").
 8. Spell names and terms exactly as given in the vocabulary list when they sound like what was said.
 9. Fix obvious recognition mistakes only when the context makes the intended word clear.

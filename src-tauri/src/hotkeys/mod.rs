@@ -40,18 +40,30 @@ pub struct Matcher {
     pub down: BTreeSet<u32>,
     active: Vec<Action>,
     rec_max: BTreeSet<u32>,
+    rec_was: bool,
     shared: Arc<Shared>,
     sink: Sink,
 }
 
 impl Matcher {
     pub fn new(shared: Arc<Shared>, sink: Sink) -> Self {
-        Matcher { down: BTreeSet::new(), active: vec![], rec_max: BTreeSet::new(), shared, sink }
+        Matcher { down: BTreeSet::new(), active: vec![], rec_max: BTreeSet::new(), rec_was: false, shared, sink }
     }
 
     /// Returns true if the key event should be swallowed (not passed to the app).
     pub fn key(&mut self, code: u32, is_down: bool) -> bool {
-        if self.shared.recording.load(Ordering::Relaxed) {
+        let rec = self.shared.recording.load(Ordering::Relaxed);
+        if rec != self.rec_was {
+            // Entering or leaving recording: start from a clean slate.
+            self.rec_was = rec;
+            self.rec_max.clear();
+            self.down.clear();
+            self.active.clear();
+            if rec && !is_down {
+                return true;
+            }
+        }
+        if rec {
             if is_down {
                 self.down.insert(code);
                 self.rec_max = self.rec_max.union(&self.down).cloned().collect();
@@ -85,7 +97,7 @@ impl Matcher {
         let mut released = vec![];
         self.active.retain(|a| {
             let keys = shortcuts.iter().find(|s| &s.action == a).map(|s| s.keys.clone()).unwrap_or_default();
-            let held = keys.iter().all(|k| self.down.contains(k));
+            let held = keys.iter().all(|k| holds(&self.down, *k));
             if !held {
                 released.push(a.clone());
             }
@@ -96,8 +108,7 @@ impl Matcher {
         }
 
         if is_down {
-            let set: Vec<u32> = self.down.iter().cloned().collect();
-            if let Some(s) = shortcuts.iter().find(|s| s.keys == set) {
+            if let Some(s) = shortcuts.iter().find(|s| combo_matches(&s.keys, &self.down)) {
                 if s.action == Action::Dismiss && !self.shared.dismiss_armed.load(Ordering::Relaxed) {
                     return false;
                 }
@@ -112,6 +123,23 @@ impl Matcher {
         false
     }
 
+    pub fn is_recording(&self) -> bool {
+        self.shared.recording.load(Ordering::Relaxed)
+    }
+
+    /// Drops keys whose release we never saw (lock screen, UAC prompt...).
+    /// Never while recording a shortcut: keys swallowed for the recorder look
+    /// "up" to the OS, and pruning them cut recordings after the first key.
+    pub fn prune_stale(&mut self, current: u32, physically_down: impl Fn(u32) -> bool) {
+        if self.is_recording() {
+            return;
+        }
+        let stale: Vec<u32> = self.down.iter().cloned().filter(|k| *k != current && !physically_down(*k)).collect();
+        for k in stale {
+            self.key(k, false);
+        }
+    }
+
     pub fn has_active(&self) -> bool {
         !self.active.is_empty()
     }
@@ -122,15 +150,56 @@ impl Matcher {
     }
 }
 
+/// Right-hand modifiers keep their own code so "Right Alt" alone can be a shortcut;
+/// a shortcut saved with the generic modifier accepts either side.
+#[cfg(windows)]
+pub fn generic(code: u32) -> u32 {
+    match code {
+        0xA3 => 0x11, // right Ctrl
+        0xA5 => 0x12, // right Alt
+        c => c,
+    }
+}
+
+#[cfg(not(windows))]
+pub fn generic(code: u32) -> u32 {
+    match code {
+        62 => 59, // right Control
+        61 => 58, // right Option
+        54 => 55, // right Command
+        c => c,
+    }
+}
+
+/// Is key `k` of a shortcut satisfied by the keys held down?
+pub fn holds(down: &BTreeSet<u32>, k: u32) -> bool {
+    down.contains(&k) || down.iter().any(|d| generic(*d) == k && *d != k)
+}
+
+/// Exact match: the held keys are this shortcut, nothing more, nothing less.
+pub fn combo_matches(keys: &[u32], down: &BTreeSet<u32>) -> bool {
+    if keys.is_empty() || keys.len() != down.len() {
+        return false;
+    }
+    let raw: Vec<u32> = down.iter().cloned().collect();
+    if keys == raw.as_slice() {
+        return true;
+    }
+    let mut g: Vec<u32> = down.iter().map(|d| generic(*d)).collect();
+    g.sort();
+    g.dedup();
+    keys == g.as_slice()
+}
+
 #[cfg(windows)]
 pub fn is_modifier(code: u32) -> bool {
-    matches!(code, 0x10 | 0x11 | 0x12 | 0x5B)
+    matches!(code, 0x10 | 0x11 | 0x12 | 0x5B | 0xA3 | 0xA5)
 }
 
 #[cfg(not(windows))]
 pub fn is_modifier(code: u32) -> bool {
     use mac_codes::*;
-    matches!(code, FN | CTRL | ALT | CMD | SHIFT)
+    matches!(code, FN | CTRL | ALT | CMD | SHIFT | 62 | 61 | 54)
 }
 
 /// macOS virtual key codes used in default shortcuts.
@@ -191,6 +260,61 @@ mod tests {
         m.key(0x11, false);
         let l = log.lock().join(",");
         assert_eq!(l, "Pressed(PushToTalk),Pressed(HandsFree),Released(HandsFree),Released(PushToTalk)");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn right_alt_alone_and_either_side() {
+        let (mut m, log) = setup();
+        m.shared.shortcuts.write()[0].keys = vec![0xA5];
+        m.key(0xA5, true);
+        m.key(0xA5, false);
+        // Default Ctrl+Win still works with the right Ctrl.
+        m.shared.shortcuts.write()[0].keys = vec![0x11, 0x5B];
+        m.key(0xA3, true);
+        m.key(0x5B, true);
+        m.key(0x5B, false);
+        m.key(0xA3, false);
+        assert_eq!(log.lock().join(","), "Pressed(PushToTalk),Released(PushToTalk),Pressed(PushToTalk),Released(PushToTalk)");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn recording_collects_full_combo() {
+        let (mut m, log) = setup();
+        m.shared.recording.store(true, Ordering::Relaxed);
+        m.key(0x11, true);
+        m.key(0x5B, true);
+        m.key(0x20, true);
+        m.key(0x20, false);
+        m.key(0x5B, false);
+        m.key(0x11, false);
+        let l = log.lock();
+        assert_eq!(l.last().unwrap(), "Recording { keys: [17, 32, 91], done: true }");
+    }
+
+    /// Regression: recording Ctrl+Win while the OS reports both keys as up
+    /// (because the recorder swallows them) must still capture the whole combo.
+    #[cfg(windows)]
+    #[test]
+    fn recording_survives_stale_check() {
+        let (mut m, log) = setup();
+        m.shared.recording.store(true, Ordering::Relaxed);
+        for (k, d) in [(0x11, true), (0x5B, true), (0x5B, false), (0x11, false)] {
+            if d {
+                m.prune_stale(k, |_| false);
+            }
+            m.key(k, d);
+        }
+        assert_eq!(log.lock().last().unwrap(), "Recording { keys: [17, 91], done: true }");
+        // And the saved shortcut then works.
+        m.shared.recording.store(false, Ordering::Relaxed);
+        m.shared.shortcuts.write()[0].keys = vec![0x11, 0x5B];
+        log.lock().clear();
+        m.key(0x11, true);
+        m.key(0x5B, true);
+        m.key(0x5B, false);
+        assert_eq!(log.lock().join(","), "Pressed(PushToTalk),Released(PushToTalk)");
     }
 
     #[cfg(windows)]

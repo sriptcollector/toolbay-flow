@@ -10,9 +10,12 @@ fn code(k: rdev::Key) -> Option<u32> {
     use rdev::Key::*;
     Some(match k {
         Function => FN,
-        ControlLeft | ControlRight => CTRL,
-        Alt | AltGr => ALT,
-        MetaLeft | MetaRight => CMD,
+        ControlLeft => CTRL,
+        ControlRight => 62,
+        Alt => ALT,
+        AltGr => 61,
+        MetaLeft => CMD,
+        MetaRight => 54,
         ShiftLeft | ShiftRight => SHIFT,
         Space => SPACE,
         Escape => ESC,

@@ -11,18 +11,29 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 static MATCHER: OnceCell<Mutex<Matcher>> = OnceCell::new();
 static WIN_CHORD: Mutex<bool> = Mutex::new(false);
 
+/// Left modifiers become the generic code; right Ctrl/Alt keep their own so they
+/// can be bound alone (see `generic`).
 fn normalize(vk: u32) -> u32 {
     match vk {
-        0xA0 | 0xA1 => 0x10, // shift
-        0xA2 | 0xA3 => 0x11, // ctrl
-        0xA4 | 0xA5 => 0x12, // alt
+        0xA0 | 0xA1 => 0x10, // shift (either)
+        0xA2 => 0x11,        // left ctrl
+        0xA4 => 0x12,        // left alt
         0x5C => 0x5B,        // right win -> win
         v => v,
     }
 }
 
+/// Keys Flow swallowed on key-down: Windows never sees them, so GetAsyncKeyState
+/// reports them up. Without this set the stale-key check below dropped them,
+/// which cut shortcut recording short after the first key.
+static SWALLOWED: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+
 fn physically_down(code: u32) -> bool {
     unsafe {
+        if SWALLOWED.lock().contains(&code) {
+            // Swallowed keys never reach Windows' key state; trust our own record.
+            return true;
+        }
         if code == 0x5B {
             return (GetAsyncKeyState(0x5B) as u16 & 0x8000) != 0 || (GetAsyncKeyState(0x5C) as u16 & 0x8000) != 0;
         }
@@ -57,13 +68,21 @@ unsafe extern "system" fn hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRE
                 if let Some(m) = MATCHER.get() {
                     let mut m = m.lock();
                     if is_down {
-                        // Drop keys whose release we never saw (secure desktop, lock screen...).
-                        let stale: Vec<u32> = m.down.iter().cloned().filter(|k| *k != vk && !physically_down(*k)).collect();
-                        for k in stale {
-                            m.key(k, false);
+                        m.prune_stale(vk, physically_down);
+                    }
+                    let mut swallow = m.key(vk, is_down);
+                    {
+                        let mut sw = SWALLOWED.lock();
+                        if is_down && swallow && !sw.contains(&vk) {
+                            sw.push(vk);
+                        } else if !is_down {
+                            if let Some(i) = sw.iter().position(|k| *k == vk) {
+                                // Swallow the matching key-up too, so apps never see half a keystroke.
+                                sw.remove(i);
+                                swallow = true;
+                            }
                         }
                     }
-                    let swallow = m.key(vk, is_down);
                     if is_down && m.down.contains(&0x5B) && m.has_active() {
                         // A chord involving Win is being used by Flow.
                         *WIN_CHORD.lock() = true;

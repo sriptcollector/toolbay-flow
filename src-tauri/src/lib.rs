@@ -7,7 +7,9 @@ mod db;
 mod dictation;
 mod engines;
 mod hotkeys;
+mod hub;
 mod llm;
+mod models;
 mod paste;
 mod selftest;
 mod settings;
@@ -60,6 +62,7 @@ fn create_hub(app: &AppHandle, visible: bool) -> tauri::Result<()> {
             // Closing the hub keeps Flow running in the tray.
             api.prevent_close();
             let _ = w2.hide();
+            hub::write_state(w2.app_handle());
         }
     });
     Ok(())
@@ -178,7 +181,7 @@ fn on_menu(app: &AppHandle, id: &str) {
         "open" => show_hub(app, None),
         "settings" => show_hub(app, Some("settings")),
         "shortcuts" => show_hub(app, Some("shortcuts")),
-        "quit" => app.exit(0),
+        "quit" => hub::quit(app),
         "paste_last" => {
             if let Ok(Some(t)) = st.db.last_text() {
                 let restore = st.settings.read().restore_clipboard;
@@ -217,9 +220,12 @@ pub fn run() {
     if let Some(i) = args.iter().position(|a| a == "--selftest") {
         std::process::exit(selftest::run(&args[i + 1..]));
     }
+    if let Some(i) = args.iter().position(|a| a == "--bench") {
+        std::process::exit(selftest::bench(&args[i + 1..]));
+    }
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            show_hub(app, None);
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            hub::handle_args(app, &args);
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--hidden"])))
@@ -250,10 +256,18 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            hub::write_state(&handle);
             dictation::start_hotkeys(&st);
-            if s.onboarded {
-                dictation::prewarm(&st);
-            }
+            // Pick models for this computer and fetch upgrades quietly in the background;
+            // the bundled starter model works in the meantime.
+            models::auto_setup(&st);
+            dictation::prewarm(&st);
+            // Close the warm microphone after a quiet period.
+            let st_mic = st.clone();
+            std::thread::spawn(move || loop {
+                std::thread::sleep(Duration::from_secs(5));
+                dictation::mic_idle_tick(&st_mic);
+            });
             // Daily retention pass.
             let st2 = st.clone();
             std::thread::spawn(move || loop {
@@ -269,6 +283,8 @@ pub fn run() {
             commands::default_shortcuts,
             commands::list_models,
             commands::hardware,
+            commands::auto_info,
+            commands::rerun_auto,
             commands::download_model,
             commands::download_engines,
             commands::delete_model,
@@ -297,6 +313,9 @@ pub fn run() {
             commands::app_info,
             commands::open_data_dir,
             commands::quit,
+            commands::toolbay_account,
+            commands::set_desktop_shortcut,
+            commands::has_desktop_shortcut,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Toolbay Flow")

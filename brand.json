@@ -1,0 +1,10 @@
+{
+  "name": "Toolbay Flow",
+  "inspiredBy": {
+    "name": "Wispr Flow",
+    "company": "Wispr",
+    "logoUrl": "src/assets/inspired-by/wispr-flow.svg",
+    "website": "https://wisprflow.ai",
+    "notAffiliated": "Toolbay Flow is an independent open-source project and is not affiliated with or endorsed by Wispr."
+  }
+}

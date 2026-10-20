@@ -10,7 +10,12 @@ const settings = {
   launch_at_login: true,
   show_bar: true,
   sounds: true,
-  mute_media_while_dictating: true,
+  model_mode: "auto",
+  hw_fingerprint: "",
+  auto_reason: "NVIDIA GeForce RTX 4070 Ti with 11 GB",
+  auto_slow_speech: false,
+  auto_slow_cleanup: false,
+  desktop_shortcut: true,
   microphone: null,
   language: "en",
   speech_model: "large-v3-turbo-q5",
@@ -112,6 +117,8 @@ export function installMocks() {
             { id: 1, content: "Flow launch checklist\n- Record the demo video\n- Post on the Toolbay community\n- Ask three friends to try hands-free mode", pinned: true, updated_at: iso(30) },
             { id: 2, content: "Ideas for the next free tool: a local meeting notetaker that never uploads audio.", pinned: false, updated_at: iso(600) },
           ];
+        case "auto_info":
+          return { hardware: { gpu_vendor: "nvidia", gpu_name: "NVIDIA GeForce RTX 4070 Ti", vram_mb: 12000, ram_mb: 65000, threads: 32 }, choice: { tier: "fast-gpu", speech_model: "large-v3-turbo-q5", llm_model: "qwen3-4b-instruct", cleanup: "medium", why: "NVIDIA GeForce RTX 4070 Ti with 11 GB" }, mode: "auto", speech_in_use: "large-v3-turbo-q5" };
         case "app_info":
           return { version: "0.1.0", fromToolbay: false, os: "windows" };
         case "default_shortcuts":

@@ -93,7 +93,6 @@ pub struct Settings {
     pub launch_at_login: bool,
     pub show_bar: bool,
     pub sounds: bool,
-    pub mute_media_while_dictating: bool,
     pub microphone: Option<String>,
     /// "auto" or a whisper language code ("en", "es", ...).
     pub language: String,
@@ -116,6 +115,13 @@ pub struct Settings {
     pub app_categories: BTreeMap<String, String>,
     pub restore_clipboard: bool,
     pub name: String,
+    /// "auto" (Flow picks models for this computer) or "manual".
+    pub model_mode: String,
+    pub hw_fingerprint: String,
+    pub auto_reason: String,
+    pub auto_slow_speech: bool,
+    pub auto_slow_cleanup: bool,
+    pub desktop_shortcut: bool,
 }
 
 impl Default for Settings {
@@ -125,12 +131,11 @@ impl Default for Settings {
             launch_at_login: true,
             show_bar: true,
             sounds: true,
-            mute_media_while_dictating: cfg!(windows),
             microphone: None,
             language: "en".into(),
-            speech_model: "base.en".into(),
+            speech_model: "base.en-q5".into(),
             use_gpu: true,
-            cleanup_level: CleanupLevel::Medium,
+            cleanup_level: CleanupLevel::Light,
             llm_provider: LlmProvider::Local,
             local_llm_model: "qwen3-4b-instruct".into(),
             cloud_llm: CloudLlm {
@@ -159,6 +164,12 @@ impl Default for Settings {
             app_categories: BTreeMap::new(),
             restore_clipboard: true,
             name: String::new(),
+            model_mode: "auto".into(),
+            hw_fingerprint: String::new(),
+            auto_reason: String::new(),
+            auto_slow_speech: false,
+            auto_slow_cleanup: false,
+            desktop_shortcut: true,
         }
     }
 }

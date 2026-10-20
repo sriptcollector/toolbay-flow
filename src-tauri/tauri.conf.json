@@ -19,7 +19,11 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "dmg", "app"],
+    "targets": [
+      "nsis",
+      "dmg",
+      "app"
+    ],
     "publisher": "Toolbay",
     "homepage": "https://toolbay.ai",
     "copyright": "MIT License",
@@ -42,6 +46,9 @@
     "macOS": {
       "minimumSystemVersion": "12.0",
       "infoPlist": "Info.plist"
+    },
+    "resources": {
+      "bundled/": "bundled/"
     }
   }
 }
