@@ -11,7 +11,7 @@ const LEVELS: [CleanupLevel, string, string][] = [
   ["high", "Polished", "Standard, plus tighter wording"],
 ];
 
-export default function SettingsPage() {
+export default function SettingsPage({ go }: { go: (p: string) => void }) {
   const [s, save] = useSettings();
   const [mics, setMics] = useState<string[]>([]);
   const [info, setInfo] = useState<{ version: string } | null>(null);
@@ -176,6 +176,11 @@ export default function SettingsPage() {
           <a className="link" href="https://github.com/sriptcollector/toolbay-flow" target="_blank" rel="noreferrer">
             Source code
           </a>
+        </Row>
+        <Row title="Share feedback" desc="Tell the maker what works, what's broken, or what you'd like next. Posts to toolbay.ai.">
+          <button className="btn" onClick={() => go("feedback")}>
+            Share feedback
+          </button>
         </Row>
         <Row title="Run setup again">
           <button className="btn" onClick={() => save({ onboarded: false })}>

@@ -369,6 +369,50 @@ pub async fn sync_delete_remote(st: State<'_, St>) -> R<()> {
     Ok(())
 }
 
+/// Sends feedback to the Toolbay Flow space on toolbay.ai. Returns the post's
+/// address. Debug info (versions, models, recent warnings; never text, audio or
+/// keys) is only added when the person ticks the box, and only the maker sees it.
+#[tauri::command]
+pub async fn send_feedback(st: State<'_, St>, kind: String, text: String, debug: bool, public: bool) -> R<String> {
+    let st = st.inner().clone();
+    let s = st.settings.read().clone();
+    let mut body = serde_json::json!({
+        "type": kind,
+        "text": text.trim(),
+        "appVersion": st.app.package_info().version.to_string(),
+        "os": format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
+        "visibility": if public { "public" } else { "maker" },
+    });
+    if debug {
+        let log = std::fs::read_to_string(st.data_dir.join("flow.log")).unwrap_or_default();
+        let warnings: Vec<&str> = log.lines().filter(|l| l.contains("WARN") || l.contains("ERROR")).collect();
+        let tail: Vec<String> = warnings.iter().rev().take(30).rev().map(|l| l.chars().take(300).collect()).collect();
+        body["debug"] = serde_json::json!({
+            "engine": s.engine,
+            "modelMode": s.model_mode,
+            "speechModel": s.speech_model,
+            "cleanupModel": s.local_llm_model,
+            "cleanup": s.cleanup_level,
+            "gpu": s.use_gpu,
+            "chosenFor": s.auto_reason,
+            "language": s.language,
+            "fromToolbayApp": crate::hub::from_hub(),
+            "recentWarnings": tail,
+        });
+    }
+    let res = crate::sync::post_signed_in("/api/v1/tools/toolbay-flow/feedback", &body)
+        .await
+        .map_err(|_| "Couldn't reach toolbay.ai. Check your internet connection and try again.".to_string())?;
+    let Some((code, v)) = res else {
+        return Err("signin".into());
+    };
+    match code {
+        200 | 201 => Ok(format!("https://toolbay.ai{}", v["url"].as_str().unwrap_or("/tools/toolbay-flow/community"))),
+        403 | 401 => Err("signin".into()),
+        _ => Err(v["error"].as_str().map(String::from).unwrap_or_else(|| "That didn't send. Please try again in a minute.".into())),
+    }
+}
+
 #[derive(Serialize)]
 pub struct MicCheck {
     ok: bool,

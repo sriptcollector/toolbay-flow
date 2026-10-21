@@ -804,3 +804,8 @@ kbd.lit {
   color: var(--muted);
   font-size: 13px;
 }
+
+.side nav > button {
+  font: inherit;
+  font-size: 16.5px;
+}

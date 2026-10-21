@@ -62,7 +62,8 @@ Release-to-text latency on this PC (p50 / p95, 20 runs, includes AI cleanup):
 | Settings: general, voice, cleanup, experimental, data & privacy, about | Built |
 | Flow bar: rest sliver, hover, waveform, hands-free buttons, command colour, processing, done, error, toasts, follows monitor, click-through | Built |
 | Flow bar right-click menu: paste last, microphone, hide for 1 hour, open | Built |
-| Tray menu: open, paste last, microphone, language, bar toggle, shortcuts, settings, quit | Built |
+| Tray menu: open, paste last, microphone, language, bar toggle, shortcuts, settings, share feedback, quit | Built |
+| Share feedback (feedback, bug, idea, show off) to the Toolbay Flow community on toolbay.ai; optional private debug info for bugs | Built |
 | Sounds: start, stop, hands-free lock, cancel, error | Built (own synthesized sounds) |
 
 ## Not built yet

@@ -199,6 +199,7 @@ fn tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let shortcuts = MenuItem::with_id(app, "shortcuts", "Shortcuts…", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let bar = CheckMenuItem::with_id(app, "toggle_bar", "Show dictation bar", true, s.show_bar, None::<&str>)?;
+    let feedback = MenuItem::with_id(app, "feedback", "Share feedback…", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Toolbay Flow", true, None::<&str>)?;
     Menu::with_items(
         app,
@@ -212,6 +213,7 @@ fn tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &shortcuts,
             &settings,
             &PredefinedMenuItem::separator(app)?,
+            &feedback,
             &quit,
         ],
     )
@@ -229,6 +231,7 @@ fn on_menu(app: &AppHandle, id: &str) {
         "open" => show_hub(app, None),
         "settings" => show_hub(app, Some("settings")),
         "shortcuts" => show_hub(app, Some("shortcuts")),
+        "feedback" => show_hub(app, Some("feedback")),
         "quit" => hub::quit(app),
         "paste_last" => {
             if let Ok(Some(t)) = st.db.last_text() {
@@ -375,6 +378,7 @@ pub fn run() {
             commands::quit,
             commands::toolbay_account,
             commands::sync_status,
+            commands::send_feedback,
             commands::sync_now,
             commands::sync_sign_in,
             commands::sync_delete_remote,

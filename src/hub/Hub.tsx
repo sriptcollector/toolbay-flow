@@ -1,8 +1,9 @@
 import { ReactNode, useEffect, useState } from "react";
-import { Mic, ChartColumnBig, BookA, Scissors, Type, WandSparkles, NotebookPen, Cpu, Keyboard, Settings as Gear, CircleHelp, PanelLeft, CircleUserRound, Minus, Square, X } from "lucide-react";
+import { MessageSquareHeart, Mic, ChartColumnBig, BookA, Scissors, Type, WandSparkles, NotebookPen, Cpu, Keyboard, Settings as Gear, CircleHelp, PanelLeft, CircleUserRound, Minus, Square, X } from "lucide-react";
 import { api, on } from "../api";
 import { useSettings } from "./ui";
 import Onboarding from "./Onboarding";
+import Feedback from "./Feedback";
 import Home from "./pages/Home";
 import Insights from "./pages/Insights";
 import Dictionary from "./pages/Dictionary";
@@ -80,14 +81,21 @@ export function TitleBar({ children }: { children?: ReactNode }) {
 export default function Hub() {
   const [settings, , reload] = useSettings();
   // ?page=<id> opens a page directly (used for screenshots and the comparison sheet).
-  const [page, setPage] = useState<PageId>(() => (new URLSearchParams(location.search).get("page") as PageId) || "home");
+  const start = new URLSearchParams(location.search).get("page");
+  const [page, setPage] = useState<PageId>(() => (start && start !== "feedback" ? (start as PageId) : "home"));
   const [collapsed, setCollapsed] = useState(false);
   const [mac, setMac] = useState(false);
+  const [feedback, setFeedback] = useState(start === "feedback");
   useTheme(settings?.appearance);
 
   useEffect(() => {
     api.appInfo().then((i) => setMac(i.os === "macos"));
-    return on<string>("navigate", (p) => setPage(p as PageId));
+    const offFb = on("open-feedback", () => setFeedback(true));
+    const offNav = on<string>("navigate", (p) => (p === "feedback" ? setFeedback(true) : setPage(p as PageId)));
+    return () => {
+      offFb();
+      offNav();
+    };
   }, []);
 
   if (!settings) return <div className="boot" />;
@@ -132,6 +140,10 @@ export default function Hub() {
         <div className="side-spacer" />
         <nav>
           {NAV2.map(item)}
+          <button onClick={() => setFeedback(true)} title={collapsed ? "Share feedback" : undefined}>
+            <MessageSquareHeart {...I} />
+            <span>Share feedback</span>
+          </button>
           <a href="https://github.com/sriptcollector/toolbay-flow#readme" target="_blank" rel="noreferrer" title={collapsed ? "Help" : undefined}>
             <CircleHelp {...I} />
             <span>Help</span>
@@ -139,8 +151,9 @@ export default function Hub() {
         </nav>
       </aside>
       <main className="content">
-        <Current key={page} go={(p: string) => setPage(p as PageId)} />
+        <Current key={page} go={(p: string) => (p === "feedback" ? setFeedback(true) : setPage(p as PageId))} />
       </main>
+      {feedback && <Feedback onClose={() => setFeedback(false)} />}
     </div>
   );
 }

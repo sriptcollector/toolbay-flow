@@ -155,6 +155,14 @@ pub async fn account() -> Result<Option<(String, Value)>> {
     }
 }
 
+/// POST JSON to a signed-in toolbay.ai endpoint. `None` when nobody is signed in.
+pub async fn post_signed_in(path: &str, body: &Value) -> Result<Option<(u16, Value)>> {
+    let Some((token, _)) = account().await? else { return Ok(None) };
+    let r = client().post(format!("{}{}", base(), path)).bearer_auth(token).json(body).send().await?;
+    let code = r.status().as_u16();
+    Ok(Some((code, r.json().await.unwrap_or(Value::Null))))
+}
+
 /// Stable 64-bit FNV-1a of an item's JSON (object keys are sorted by serde_json).
 fn hash(v: &Value) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325;

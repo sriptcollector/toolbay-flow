@@ -191,6 +191,7 @@ export const api = {
   quit: () => invoke<void>("quit"),
   uiReady: () => invoke<void>("ui_ready"),
   ownKey: (vk: number, down: boolean) => invoke<void>("own_key", { vk, down }),
+  sendFeedback: (kind: string, text: string, debug: boolean, isPublic: boolean) => invoke<string>("send_feedback", { kind, text, debug, public: isPublic }),
   syncStatus: () => invoke<SyncStatus>("sync_status"),
   syncNow: () => invoke<SyncStatus>("sync_now"),
   syncSignIn: () => invoke<void>("sync_sign_in"),
