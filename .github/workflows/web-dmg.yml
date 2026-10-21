@@ -1,0 +1,38 @@
+name: web-dmg
+
+# Wraps the latest Mac .pkg installer in a disk image and uploads it under the
+# given asset names, so old download links that point at a .dmg still give
+# people the installer (which macOS lets them open with "Open Anyway").
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Release tag to upload into"
+        required: true
+      prefix:
+        description: "Asset name prefix, e.g. Toolbay.Flow_0.2.1"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    runs-on: macos-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - shell: bash
+        run: |
+          set -euo pipefail
+          for arch in aarch64 x64; do
+            gh release download -R "$GITHUB_REPOSITORY" --pattern "Toolbay.Flow_${arch}.pkg" --clobber \
+              $(gh release view -R "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+            dir=$(mktemp -d)
+            cp "Toolbay.Flow_${arch}.pkg" "$dir/Install Toolbay Flow.pkg"
+            out="${{ inputs.prefix }}_${arch}.dmg"
+            hdiutil create -volname "Toolbay Flow" -srcfolder "$dir" -ov -format UDZO "$out"
+            hdiutil attach -nobrowse -readonly "$out" | tail -1
+            ls "/Volumes/Toolbay Flow"; hdiutil detach "/Volumes/Toolbay Flow"
+            gh release upload -R "$GITHUB_REPOSITORY" "${{ inputs.release }}" "$out" --clobber
+          done
