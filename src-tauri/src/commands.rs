@@ -271,6 +271,12 @@ pub fn bar_hit(rects: Vec<[f64; 4]>) {
     *crate::BAR_HIT.lock() = rects;
 }
 
+/// Keystrokes from Flow's own windows, so hotkeys work while Flow is focused.
+#[tauri::command]
+pub fn own_key(vk: u32, down: bool) {
+    crate::hotkeys::feed(vk, down);
+}
+
 #[tauri::command]
 pub fn ui_ready(app: AppHandle) {
     crate::ui_ready(&app);

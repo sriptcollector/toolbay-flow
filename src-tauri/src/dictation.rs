@@ -283,7 +283,9 @@ pub fn start_hotkeys(st: &St) {
 }
 
 fn on_hotkey(st: &St, ev: HotkeyEvent) {
-    log::info!("hotkey event: {ev:?}");
+    if !matches!(ev, HotkeyEvent::Prefix) {
+        log::info!("hotkey event: {ev:?}");
+    }
     let (phase, mode, elapsed, last_tap) = {
         let s = st.session.lock();
         (s.phase, s.mode, s.started.elapsed(), s.last_tap_up)
@@ -293,6 +295,12 @@ fn on_hotkey(st: &St, ev: HotkeyEvent) {
             let _ = st.app.emit("shortcut-recorded", serde_json::json!({ "keys": keys, "done": done }));
             if done {
                 st.hk.recording.store(false, Ordering::Relaxed);
+            }
+        }
+        HotkeyEvent::Prefix => {
+            if phase == Phase::Idle && !st.mic_test.load(Ordering::Relaxed) {
+                let dev = st.settings.read().microphone.clone();
+                let _ = st.rec.lock().warm(dev);
             }
         }
         HotkeyEvent::Pressed(a) => match (a, phase) {
@@ -362,7 +370,8 @@ pub fn start(st: &St, mode: Mode) {
         return;
     }
     let s = st.settings.read().clone();
-    if crate::models::current_speech_path(st).is_none() {
+    let cloud = s.engine == "cloud" && !s.cloud_asr.api_key.is_empty();
+    if !cloud && crate::models::current_speech_path(st).is_none() {
         st.bar("notice", None, Some("Flow is still getting ready. Try again in a moment.".into()));
         return;
     }
@@ -404,7 +413,9 @@ pub fn start(st: &St, mode: Mode) {
     // last few seconds are left when they let go.
     let st2 = st.clone();
     tauri::async_runtime::spawn(async move {
-        let _ = ensure_whisper(&st2).await;
+        if st2.settings.read().engine != "cloud" {
+            let _ = ensure_whisper(&st2).await;
+        }
         stream_loop(st2, stream, gen).await;
     });
     // Safety stop for forgotten hands-free sessions.
@@ -427,7 +438,7 @@ pub struct StreamState {
 }
 
 async fn stream_loop(st: St, stream: Arc<Mutex<StreamState>>, gen: u64) {
-    const MIN_CHUNK: usize = 16_000 * 4;
+    const MIN_CHUNK: usize = 16_000 * 6;
     loop {
         tokio::time::sleep(Duration::from_millis(350)).await;
         if st.generation.load(Ordering::SeqCst) != gen || st.session.lock().phase != Phase::Recording {
@@ -479,6 +490,9 @@ pub fn cancel(st: &St) {
 
 pub fn stop(st: &St) {
     let released = Instant::now();
+    // People let go of the key on their last syllable: keep listening a moment so
+    // the final word and the audio still in the device buffer make it in.
+    std::thread::sleep(Duration::from_millis(250));
     let mut samples = st.rec.lock().stop();
     let (mode, ctx_slot, dur, stream) = {
         let mut ss = st.session.lock();
@@ -572,7 +586,10 @@ pub async fn transcribe(st: &St, samples: &[f32]) -> Result<String> {
 
 /// Transcribe, giving the speech model the user's vocabulary and the text so far.
 pub async fn transcribe_with(st: &St, samples: &[f32], previous: &str) -> Result<String> {
-    let base = ensure_whisper(st).await?;
+    let (cloud, cloud_cfg) = {
+        let s = st.settings.read();
+        (s.engine == "cloud" && !s.cloud_asr.api_key.is_empty(), s.cloud_asr.clone())
+    };
     let (lang, vocab) = {
         let s = st.settings.read();
         let dict = st.db.list_dict(false).unwrap_or_default();
@@ -592,8 +609,26 @@ pub async fn transcribe_with(st: &St, samples: &[f32], previous: &str) -> Result
         }
         prompt.push_str(&llm::tail(previous, 300));
     }
-    let raw = llm::transcribe(&base, wav, &lang, &prompt).await?;
-    Ok(textproc::strip_artifacts(&raw))
+    let raw = if cloud {
+        match llm::transcribe_cloud(&cloud_cfg, wav.clone(), &lang, &prompt).await {
+            Ok(t) => t,
+            Err(e) => {
+                // Offline or key problem: fall back to the local engine so nothing is lost.
+                log::warn!("cloud speech failed, using local: {e:#}");
+                let base = ensure_whisper(st).await?;
+                llm::transcribe(&base, wav, &lang, &prompt).await?
+            }
+        }
+    } else {
+        let base = ensure_whisper(st).await?;
+        llm::transcribe(&base, wav, &lang, &prompt).await?
+    };
+    let text = textproc::strip_artifacts(&raw);
+    // Whisper invents "Thank you." on near-silent audio; only drop it then.
+    if audio::speech_seconds(samples) < 0.5 && textproc::is_silence_hallucination(&text) {
+        return Ok(String::new());
+    }
+    Ok(text)
 }
 
 fn style_for(s: &Settings, category: &str) -> Style {
@@ -762,6 +797,9 @@ async fn process(st: &St, raw: String, samples: Vec<f32>, mode: Mode, ctx: Focus
         tokio::time::sleep(Duration::from_millis(120)).await;
         let _ = tokio::task::spawn_blocking(paste::press_enter).await;
     }
+    if st.settings.read().debug_recordings {
+        save_debug(st, &samples, &raw, &text, &ctx.app, speech_ms);
+    }
     // Release-to-paste latency, the number that makes dictation feel instant or not.
     let latency = released.elapsed().as_millis() as i64;
     let cleanup_ms = (latency as u64).saturating_sub(speech_ms);
@@ -792,6 +830,32 @@ async fn process(st: &St, raw: String, samples: Vec<f32>, mode: Mode, ctx: Focus
     }
     let words = count_words(&text);
     Ok(Some(format!("{words} word{}", if words == 1 { "" } else { "s" })))
+}
+
+/// Debug recordings: audio + raw transcript + final text, newest 20 kept.
+fn save_debug(st: &St, samples: &[f32], raw: &str, text: &str, app: &str, speech_ms: u64) {
+    let root = st.data_dir.join("debug");
+    let dir = root.join(chrono::Local::now().format("%Y%m%d-%H%M%S").to_string());
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let _ = std::fs::write(dir.join("audio.wav"), audio::to_wav(samples));
+    let info = serde_json::json!({
+        "app": app,
+        "audio_seconds": samples.len() as f64 / 16000.0,
+        "speech_seconds": audio::speech_seconds(samples),
+        "raw_transcript": raw,
+        "final_text": text,
+        "speech_ms": speech_ms,
+    });
+    let _ = std::fs::write(dir.join("info.json"), serde_json::to_vec_pretty(&info).unwrap_or_default());
+    if let Ok(rd) = std::fs::read_dir(&root) {
+        let mut dirs: Vec<_> = rd.flatten().map(|e| e.path()).collect();
+        dirs.sort();
+        while dirs.len() > 20 {
+            let _ = std::fs::remove_dir_all(dirs.remove(0));
+        }
+    }
 }
 
 fn is_terminal(exe: &str) -> bool {

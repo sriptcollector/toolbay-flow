@@ -12,7 +12,7 @@ pub const SAMPLE_RATE: u32 = 16_000;
 type LevelFn = Arc<dyn Fn(f32) + Send + Sync>;
 
 /// How long the microphone stays open after a dictation, so the next one starts instantly.
-const WARM_SECS: u64 = 45;
+const WARM_SECS: u64 = 120;
 /// Audio kept from just before the hotkey (people often start talking as they press).
 const PREROLL_MS: u32 = 300;
 
@@ -192,6 +192,18 @@ impl Recorder {
         c.recording = false;
     }
 
+    /// Opens the microphone without recording, keeping the last 300 ms in memory,
+    /// so a dictation that starts right after includes the first syllable.
+    pub fn warm(&mut self, device: Option<String>) -> Result<()> {
+        if self.is_recording() || (self.is_open() && self.device.as_ref() == Some(&device)) {
+            self.last_used = Instant::now();
+            return Ok(());
+        }
+        self.open(device)?;
+        self.last_used = Instant::now();
+        Ok(())
+    }
+
     /// Starts recording. Reuses the warm stream when possible (instant start, with pre-roll).
     pub fn start(&mut self, device: Option<String>, on_level: LevelFn) -> Result<()> {
         if self.is_recording() {
@@ -257,25 +269,47 @@ impl Recorder {
     }
 }
 
-/// Trims leading/trailing silence and shortens long pauses, so the speech model
-/// has less audio to chew through. Keeps a little padding around speech.
+/// Per-recording loudness levels. Thresholds come from the recording itself, so a
+/// quiet microphone or a soft voice is not mistaken for silence. (A fixed 0.008
+/// threshold cut real words out of quiet dictations.)
+pub struct Levels {
+    pub frames: Vec<f32>,
+    pub threshold: f32,
+}
+
+pub const FRAME: usize = 320; // 20 ms at 16 kHz
+
+pub fn levels(samples: &[f32]) -> Levels {
+    let frames: Vec<f32> = samples.chunks(FRAME).map(|c| (c.iter().map(|s| s * s).sum::<f32>() / c.len().max(1) as f32).sqrt()).collect();
+    if frames.is_empty() {
+        return Levels { frames, threshold: 0.0015 };
+    }
+    let mut sorted = frames.clone();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let floor = sorted[sorted.len() / 10]; // background noise
+    let loud = sorted[(sorted.len() * 95) / 100]; // speech peaks
+    // Silence = close to the noise floor. Never above 3% of the loud level, so
+    // quiet speech always counts as speech.
+    let threshold = (floor * 2.5).max(0.0012).min((loud * 0.03).max(0.0012));
+    Levels { frames, threshold }
+}
+
+/// Trims long leading/trailing silence and shortens only very long pauses.
+/// Conservative on purpose: whisper copes with silence, but not with missing words.
 pub fn compact_silence(samples: &[f32]) -> Vec<f32> {
-    let frame = 320; // 20 ms at 16 kHz
-    let frames: Vec<bool> = samples
-        .chunks(frame)
-        .map(|c| (c.iter().map(|s| s * s).sum::<f32>() / c.len() as f32).sqrt() > 0.008)
-        .collect();
-    let first = frames.iter().position(|v| *v);
-    let last = frames.iter().rposition(|v| *v);
+    let lv = levels(samples);
+    let voiced: Vec<bool> = lv.frames.iter().map(|e| *e > lv.threshold).collect();
+    let first = voiced.iter().position(|v| *v);
+    let last = voiced.iter().rposition(|v| *v);
     let (Some(first), Some(last)) = (first, last) else { return samples.to_vec() };
-    let pad = 10; // 200 ms
+    let pad = 25; // 500 ms around speech
     let start = first.saturating_sub(pad);
-    let end = (last + pad + 1).min(frames.len());
-    let max_gap = 25; // keep at most 500 ms of any pause
+    let end = (last + pad + 1).min(voiced.len());
+    let max_gap = 50; // pauses longer than 1 s are shortened to 1 s
     let mut out = Vec::with_capacity(samples.len());
     let mut gap = 0;
     for i in start..end {
-        if frames[i] {
+        if voiced[i] {
             gap = 0;
         } else {
             gap += 1;
@@ -283,36 +317,51 @@ pub fn compact_silence(samples: &[f32]) -> Vec<f32> {
                 continue;
             }
         }
-        let a = i * frame;
-        let b = ((i + 1) * frame).min(samples.len());
+        let a = i * FRAME;
+        let b = ((i + 1) * FRAME).min(samples.len());
         out.extend_from_slice(&samples[a..b]);
     }
     out
 }
 
-/// Finds a pause to cut at for streaming: the end of the last >=350 ms silence
-/// that starts after `from` and ends at least 0.6 s before the end of the audio.
+/// Where to cut for streaming: the middle of the last clear pause (>= 600 ms)
+/// that starts after `from` and ends at least 1 s before the end. Cutting in the
+/// middle of a long pause means no word sits on a chunk boundary.
 pub fn find_cut(samples: &[f32], from: usize) -> Option<usize> {
-    let frame = 320;
-    let need = 18; // 360 ms
-    let end_guard = samples.len().saturating_sub(9600);
+    let lv = levels(samples);
+    let need = 30; // 600 ms
+    let first = from / FRAME;
+    let last = (samples.len().saturating_sub(16_000)) / FRAME;
     let mut run = 0;
     let mut best = None;
-    let mut i = from;
-    while i + frame <= end_guard {
-        let c = &samples[i..i + frame];
-        let quiet = (c.iter().map(|s| s * s).sum::<f32>() / frame as f32).sqrt() < 0.008;
-        if quiet {
+    for i in first..last.min(lv.frames.len()) {
+        if lv.frames[i] <= lv.threshold {
             run += 1;
             if run >= need {
-                best = Some(i + frame - (need / 2) * frame);
+                best = Some((i + 1 - run / 2) * FRAME);
             }
         } else {
             run = 0;
         }
-        i += frame;
     }
     best
+}
+
+/// Is there any speech at all? (Skips silent key presses.)
+pub fn has_speech(samples: &[f32]) -> bool {
+    if samples.len() < (SAMPLE_RATE as usize) / 5 {
+        return false;
+    }
+    let lv = levels(samples);
+    // At least 200 ms clearly above the noise floor, and not just hiss.
+    let t = lv.threshold.max(0.003);
+    lv.frames.iter().filter(|e| **e > t).count() >= 10
+}
+
+/// Seconds of speech in a recording (for hallucination checks).
+pub fn speech_seconds(samples: &[f32]) -> f32 {
+    let lv = levels(samples);
+    lv.frames.iter().filter(|e| **e > lv.threshold.max(0.003)).count() as f32 * FRAME as f32 / SAMPLE_RATE as f32
 }
 
 /// Band-limited-enough resampler: box low-pass then linear interpolation.
@@ -365,22 +414,6 @@ pub fn to_wav(samples: &[f32]) -> Vec<u8> {
 pub fn from_wav(bytes: &[u8]) -> Result<Vec<f32>> {
     let mut r = hound::WavReader::new(std::io::Cursor::new(bytes))?;
     Ok(r.samples::<i16>().filter_map(|s| s.ok()).map(|s| s as f32 / 32768.0).collect())
-}
-
-/// Simple energy-based speech check so silent presses do not paste hallucinations.
-pub fn has_speech(samples: &[f32]) -> bool {
-    if samples.len() < (SAMPLE_RATE as usize) / 5 {
-        return false;
-    }
-    let frame = 320; // 20 ms
-    let mut loud = 0;
-    for ch in samples.chunks(frame) {
-        let e = (ch.iter().map(|s| s * s).sum::<f32>() / ch.len() as f32).sqrt();
-        if e > 0.012 {
-            loud += 1;
-        }
-    }
-    loud >= 6
 }
 
 /// Normalizes quiet recordings so whisper hears them well.

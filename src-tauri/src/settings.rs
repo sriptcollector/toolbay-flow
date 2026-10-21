@@ -128,6 +128,13 @@ pub struct Settings {
     pub press_enter_command: bool,
     /// Flow bar hidden until this time (unix seconds), from "Hide for 1 hour".
     pub bar_snooze_until: i64,
+    /// Keep the audio, raw transcript and final text of the last 20 dictations in
+    /// a "debug" folder, to trace where words went missing. Off by default.
+    pub debug_recordings: bool,
+    /// "local" (default: private, free, on this computer) or "cloud" (hosted
+    /// speech recognition with the user's own API key, OpenAI-compatible).
+    pub engine: String,
+    pub cloud_asr: CloudLlm,
 }
 
 impl Default for Settings {
@@ -179,6 +186,13 @@ impl Default for Settings {
             profile: serde_json::Value::Null,
             press_enter_command: true,
             bar_snooze_until: 0,
+            debug_recordings: false,
+            engine: "local".into(),
+            cloud_asr: CloudLlm {
+                base_url: "https://api.groq.com/openai/v1".into(),
+                api_key: String::new(),
+                model: "whisper-large-v3-turbo".into(),
+            },
         }
     }
 }

@@ -1491,3 +1491,39 @@ blockquote {
   padding-top: 18px;
   border-top: 1px solid var(--line);
 }
+
+.engines {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 14px 18px 0;
+}
+.engine {
+  text-align: left;
+  border: 1px solid var(--line-strong);
+  background: var(--card);
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.engine span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.engine em {
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.engine.sel {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.cloudform {
+  padding: 8px 0 4px;
+  border-bottom: none;
+  align-items: end;
+}

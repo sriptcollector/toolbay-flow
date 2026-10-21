@@ -26,6 +26,7 @@ fn normalize(vk: u32) -> u32 {
 /// reports them up. Without this set the stale-key check below dropped them,
 /// which cut shortcut recording short after the first key.
 static SWALLOWED: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+static LAST_EVENT: Mutex<Option<(u32, u32, u32, usize)>> = Mutex::new(None);
 
 fn physically_down(code: u32) -> bool {
     unsafe {
@@ -58,6 +59,15 @@ unsafe extern "system" fn hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRE
         // Ignore only keystrokes Flow itself sends (paste, Start-menu masking);
         // other injected input (AutoHotkey, Stream Deck, remote desktop) still counts.
         let ours = (kb.flags.0 & LLKHF_INJECTED.0) != 0 && kb.dwExtraInfo == super::OWN_INPUT_TAG;
+        // Same event delivered to both hooks while one replaces the other.
+        {
+            let key = (kb.vkCode, kb.flags.0, kb.time, wparam.0);
+            let mut last = LAST_EVENT.lock();
+            if *last == Some(key) {
+                return CallNextHookEx(None, code, wparam, lparam);
+            }
+            *last = Some(key);
+        }
         if std::env::var_os("TOOLBAY_FLOW_DEBUG_KEYS").is_some() {
             log::info!("key vk={:#x} msg={:#x} flags={:#x} extra={:#x} ours={}", kb.vkCode, wparam.0, kb.flags.0, kb.dwExtraInfo, ours);
         }
@@ -104,12 +114,34 @@ unsafe extern "system" fn hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRE
     CallNextHookEx(None, code, wparam, lparam)
 }
 
+/// Keys typed while one of Flow's own windows is focused. Windows does not pass
+/// those to Flow's own low-level hook, so the page forwards them here instead.
+pub fn feed(vk: u32, down: bool) {
+    if let Some(m) = MATCHER.get() {
+        let vk = normalize(vk);
+        let mut m = m.lock();
+        let was_active = m.has_active();
+        m.key(vk, down);
+        if down && !was_active && m.has_active() && m.down.iter().any(|k| matches!(*k, 0x12 | 0xA5 | 0x5B)) {
+            drop(m);
+            mask_win();
+        }
+    }
+}
+
+/// Windows silently drops a low-level hook whose callback is ever slow (for
+/// example while the computer is busy running the speech model). Re-installing it
+/// regularly keeps hotkeys alive; events seen by both hooks during the swap are
+/// recognised by their timestamp and handled once.
+const REINSTALL_MS: u32 = 30_000;
+
 pub fn start(shared: Arc<Shared>, sink: Sink) {
     let _ = MATCHER.set(Mutex::new(Matcher::new(shared, sink)));
     std::thread::Builder::new()
         .name("hotkeys".into())
         .spawn(|| unsafe {
-            let h = match SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook), None, 0) {
+            let install = || SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook), None, 0);
+            let mut h = match install() {
                 Ok(h) => {
                     log::info!("keyboard hook installed");
                     h
@@ -119,8 +151,16 @@ pub fn start(shared: Arc<Shared>, sink: Sink) {
                     return;
                 }
             };
+            let timer = SetTimer(None, 0, REINSTALL_MS, None);
             let mut msg = MSG::default();
             while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                if msg.message == WM_TIMER && msg.wParam.0 == timer {
+                    if let Ok(new) = install() {
+                        let _ = UnhookWindowsHookEx(h);
+                        h = new;
+                    }
+                    continue;
+                }
                 let _ = TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }

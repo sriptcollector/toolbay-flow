@@ -1,4 +1,4 @@
-# Parity checklist vs Wispr Flow (v0.2.0)
+# Parity checklist vs Wispr Flow (v0.2.2)
 
 Source: the reverse-engineering report in toolbay-research (evidence/03 product/UI, 01 architecture,
 02 pipeline). "Verified" = exercised on Windows 11 + RTX 4070 Ti. "Built" = implemented, unit-tested
@@ -9,7 +9,7 @@ team-only features that don't apply to a free local app).
 
 | Feature | State |
 |---|---|
-| Hold-to-talk (Ctrl+Win / Fn) | Verified (live dictations into Chrome and Flow) |
+| Hold-to-talk (Ctrl+Win / Fn) | Verified live: Notepad, Chrome, Claude, the Toolbay hub and Flow's own windows |
 | Hands-free: Ctrl+Win+Space, double-tap PTT, stop/cancel buttons on the bar | Built, state machine unit-tested |
 | Command mode (Ctrl+Win+Alt): edit selection by voice, or write from an instruction | Built |
 | Esc cancels while listening (only then) | Built, unit-tested |
@@ -27,6 +27,9 @@ team-only features that don't apply to a free local app).
 | Context: focused app, title, text around cursor, selection; never password fields | Verified on Windows |
 | Paste via clipboard + Ctrl/⌘+V, all-format clipboard restore, kept out of clipboard history | Verified |
 | Never mutes or ducks other audio | Built (mute feature removed; shared-mode console capture) |
+| No dropped words: adaptive silence detection, safe streaming cuts, mic pre-open on first hotkey key, 250 ms tail | Verified: a real 23 s dictation went from 51% to 97% word recall; regression clips pass (eval/pipeline.mjs) |
+| Engine: local (default) or cloud with your own key (Groq/OpenAI-compatible), local fallback | Built (cloud not tested without a key) |
+| Debug recordings (audio + raw + final text, last 20) | Built |
 | Personal dictionary: words, replacement rules, star, usage counts, speech-model biasing | Built |
 | Auto-learn corrected words + "Added X" toast with Undo | Built |
 | Snippets with length counter | Built |

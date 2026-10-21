@@ -64,6 +64,9 @@ export interface Settings {
   profile: Record<string, string[]> | null;
   press_enter_command: boolean;
   bar_snooze_until: number;
+  debug_recordings: boolean;
+  engine: "local" | "cloud";
+  cloud_asr: CloudLlm;
 }
 export interface AutoInfo {
   hardware: { gpu_vendor: string; gpu_name: string; vram_mb: number; ram_mb: number; threads: number };
@@ -184,6 +187,7 @@ export const api = {
   openDataDir: () => invoke<void>("open_data_dir"),
   quit: () => invoke<void>("quit"),
   uiReady: () => invoke<void>("ui_ready"),
+  ownKey: (vk: number, down: boolean) => invoke<void>("own_key", { vk, down }),
   toolbayAccount: () => invoke<{ name: string; handle: string; avatar_url: string | null } | null>("toolbay_account"),
   setDesktopShortcut: (on: boolean) => invoke<void>("set_desktop_shortcut", { on }),
   hasDesktopShortcut: () => invoke<boolean>("has_desktop_shortcut"),

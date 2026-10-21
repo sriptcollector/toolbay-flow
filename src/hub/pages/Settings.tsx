@@ -119,6 +119,17 @@ export default function SettingsPage() {
         <Row title="“Press enter” voice command" desc="End a dictation with “press enter” to paste and send it, in chat apps for example.">
           <Toggle on={s.press_enter_command} onChange={(v) => save({ press_enter_command: v })} />
         </Row>
+        <Row
+          title="Save debug recordings"
+          desc="If words go missing, this keeps the audio, what the speech model heard and the final text for your last 20 dictations, in a debug folder on this computer, so you can see which step lost them."
+        >
+          {s.debug_recordings && (
+            <button className="link" onClick={() => api.openDataDir()}>
+              Open folder
+            </button>
+          )}
+          <Toggle on={s.debug_recordings} onChange={(v) => save({ debug_recordings: v })} />
+        </Row>
       </Section>
 
       <Section title="Data and privacy">

@@ -7,6 +7,9 @@ async function boot() {
   if (import.meta.env.DEV && location.search.includes("mock")) {
     (await import("./mock")).installMocks();
   }
+  if (!import.meta.env.DEV || !location.search.includes("mock")) {
+    (await import("./ownKeys")).forwardOwnKeys();
+  }
   const root = ReactDOM.createRoot(document.getElementById("root") as HTMLElement);
   if (isBar) {
     const { default: Bar } = await import("./bar/Bar");

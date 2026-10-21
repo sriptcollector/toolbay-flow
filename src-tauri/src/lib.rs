@@ -262,6 +262,9 @@ pub fn run() {
     if let Some(i) = args.iter().position(|a| a == "--selftest") {
         std::process::exit(selftest::run(&args[i + 1..]));
     }
+    if let Some(i) = args.iter().position(|a| a == "--pipeline") {
+        std::process::exit(selftest::pipeline(&args[i + 1..]));
+    }
     if let Some(i) = args.iter().position(|a| a == "--bench") {
         std::process::exit(selftest::bench(&args[i + 1..]));
     }
@@ -358,6 +361,7 @@ pub fn run() {
             commands::bar_hit,
             commands::open_hub,
             commands::ui_ready,
+            commands::own_key,
             commands::hotkeys_enabled,
             commands::app_info,
             commands::open_data_dir,

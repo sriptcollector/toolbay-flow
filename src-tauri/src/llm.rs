@@ -29,6 +29,32 @@ pub async fn transcribe(base: &str, wav: Vec<u8>, language: &str, prompt: &str) 
     Ok(v.get("text").and_then(|t| t.as_str()).unwrap_or("").trim().to_string())
 }
 
+/// Hosted speech recognition (OpenAI-compatible /audio/transcriptions: Groq,
+/// OpenAI and others). Only used when the user picks the cloud engine.
+pub async fn transcribe_cloud(cfg: &CloudLlm, wav: Vec<u8>, language: &str, prompt: &str) -> Result<String> {
+    let part = reqwest::multipart::Part::bytes(wav).file_name("audio.wav").mime_str("audio/wav")?;
+    let mut form = reqwest::multipart::Form::new().part("file", part).text("model", cfg.model.clone()).text("response_format", "json").text("temperature", "0");
+    if !language.is_empty() && language != "auto" {
+        form = form.text("language", language.to_string());
+    }
+    if !prompt.is_empty() {
+        form = form.text("prompt", prompt.chars().take(800).collect::<String>());
+    }
+    let r = reqwest::Client::new()
+        .post(format!("{}/audio/transcriptions", cfg.base_url.trim_end_matches('/')))
+        .bearer_auth(&cfg.api_key)
+        .multipart(form)
+        .timeout(Duration::from_secs(30))
+        .send()
+        .await?;
+    let status = r.status();
+    let v: Value = r.json().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(anyhow!("cloud speech {}: {}", status.as_u16(), v["error"]["message"].as_str().unwrap_or("request failed")));
+    }
+    Ok(v["text"].as_str().unwrap_or("").trim().to_string())
+}
+
 // ---------------- chat ----------------
 
 pub struct Llm {
@@ -167,7 +193,8 @@ Rules:
 7. Write numbers, times, dates, money, emails and URLs the way people type them ("3:30 pm", "$20", "jane@example.com").
 8. Spell names and terms exactly as given in the vocabulary list when they sound like what was said.
 9. Fix obvious recognition mistakes only when the context makes the intended word clear.
-10. Output only the final text: no quotes around it, no labels, no explanations."#;
+10. Never drop content. Every idea, name, number and clause the user said must stay in the output, even if it rambles or seems unimportant. Only remove fillers, stutters, repeats and the parts the user explicitly corrected.
+11. Output only the final text: no quotes around it, no labels, no explanations."#;
 
 pub fn cleanup_messages(i: &CleanupInput) -> (String, Vec<Msg>) {
     let mut system = CLEANUP_SYSTEM.to_string();

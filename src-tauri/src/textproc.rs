@@ -12,10 +12,17 @@ static ARTIFACTS: Lazy<Regex> = Lazy::new(|| {
 });
 
 /// Phrases whisper tends to invent on near-silent audio.
+/// Phrases whisper produces from pure noise. Always dropped.
 const HALLUCINATIONS: &[&str] = &[
-    "thank you.", "thanks for watching!", "thanks for watching.", "thank you for watching.", "you", "bye.",
+    "thanks for watching!", "thanks for watching.", "thank you for watching.",
     "subtitles by the amara.org community", "please subscribe.", ".", "...",
 ];
+
+/// Short phrases that are real words but also common on silent audio; dropped
+/// only when the recording has almost no speech in it.
+pub fn is_silence_hallucination(t: &str) -> bool {
+    matches!(t.trim().to_lowercase().as_str(), "thank you." | "thank you" | "you" | "you." | "bye." | "bye" | "thanks." | "okay.")
+}
 
 pub fn strip_artifacts(s: &str) -> String {
     let t = ARTIFACTS.replace_all(s, " ");

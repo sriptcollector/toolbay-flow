@@ -122,6 +122,7 @@ export default function Models() {
   return (
     <Page title="Models" sub="Flow picks the AI models for this computer by itself, so dictation stays instant. Everything runs on this computer.">
       {err && <div className="alert">{err}</div>}
+      <EngineChoice />
       <Section>
         <Row
           title={
@@ -188,5 +189,82 @@ export default function Models() {
         </>
       )}
     </Page>
+  );
+}
+
+const PRESETS: Record<string, { label: string; base: string; asr: string; llm: string; keyUrl: string }> = {
+  groq: { label: "Groq", base: "https://api.groq.com/openai/v1", asr: "whisper-large-v3-turbo", llm: "llama-3.3-70b-versatile", keyUrl: "https://console.groq.com/keys" },
+  openai: { label: "OpenAI", base: "https://api.openai.com/v1", asr: "gpt-4o-transcribe", llm: "gpt-4o-mini", keyUrl: "https://platform.openai.com/api-keys" },
+};
+
+/** Local (default, private, free) vs hosted speech + cleanup with the user's own key. */
+function EngineChoice() {
+  const [s, save] = useSettings();
+  const [preset, setPreset] = useState("groq");
+  const [key, setKey] = useState("");
+  if (!s) return null;
+  const cloud = s.engine === "cloud";
+  const useCloud = (k: string) => {
+    const p = PRESETS[preset];
+    return save({
+      engine: "cloud",
+      cloud_asr: { base_url: p.base, api_key: k, model: p.asr },
+      cloud_llm: { base_url: p.base, api_key: k, model: p.llm },
+      llm_provider: "open_ai_compatible",
+      cleanup_level: s.cleanup_level === "none" || s.cleanup_level === "light" ? "medium" : s.cleanup_level,
+    });
+  };
+  return (
+    <Section title="Engine">
+      <div className="engines">
+        <button className={`engine ${!cloud ? "sel" : ""}`} onClick={() => save({ engine: "local", llm_provider: "local" })}>
+          <b>On this computer</b>
+          <span>Private and free. Nothing leaves your computer. Fast on most PCs.</span>
+          <em>Default</em>
+        </button>
+        <button className={`engine ${cloud ? "sel" : ""}`} onClick={() => !cloud && s.cloud_asr.api_key && useCloud(s.cloud_asr.api_key)}>
+          <b>Cloud, with your own key</b>
+          <span>The same approach paid dictation apps use: large hosted models for speech and cleanup. Fastest and most accurate on any computer.</span>
+          <em>Uses your API key</em>
+        </button>
+      </div>
+      <div className="pad">
+        <p className="muted small">
+          With the cloud engine, your recordings and text are sent to the provider you pick, using your own account. Toolbay never sees them. The provider has its own
+          privacy policy and may charge for use (Groq has a free tier). If the cloud can't be reached, Flow uses the local engine for that dictation. Flow itself stays
+          free.
+        </p>
+        <div className="subform cloudform">
+          <label>
+            Provider
+            <select value={preset} onChange={(e) => setPreset(e.target.value)}>
+              {Object.entries(PRESETS).map(([id, p]) => (
+                <option key={id} value={id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            API key{" "}
+            <a className="link small" href={PRESETS[preset].keyUrl} target="_blank" rel="noreferrer">
+              Get a key
+            </a>
+            <input type="password" placeholder={cloud ? "Saved. Paste a new one to replace it" : "Paste your API key"} value={key} onChange={(e) => setKey(e.target.value)} />
+          </label>
+          <label>
+            &nbsp;
+            <button className="btn primary" disabled={!key.trim()} onClick={() => useCloud(key.trim()).then(() => setKey(""))}>
+              Use cloud engine
+            </button>
+          </label>
+        </div>
+        {cloud && (
+          <p className="muted small">
+            Speech: {s.cloud_asr.model} · Cleanup: {s.cloud_llm.model} at {s.cloud_asr.base_url.replace("https://", "")}
+          </p>
+        )}
+      </div>
+    </Section>
   );
 }

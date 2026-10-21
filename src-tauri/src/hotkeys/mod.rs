@@ -19,6 +19,8 @@ pub enum HotkeyEvent {
     Released(Action),
     /// Raw keys while the settings UI records a new shortcut.
     Recording { keys: Vec<u32>, done: bool },
+    /// The keys held are the start of a dictation shortcut: get the mic ready.
+    Prefix,
 }
 
 pub struct Shared {
@@ -107,6 +109,15 @@ impl Matcher {
             (self.sink)(HotkeyEvent::Released(a));
         }
 
+        if is_down && self.active.is_empty() {
+            let dictation = [Action::PushToTalk, Action::HandsFree, Action::Command];
+            let prefix = shortcuts.iter().any(|s| {
+                dictation.contains(&s.action) && s.keys.len() > self.down.len() && self.down.iter().all(|d| s.keys.contains(d) || s.keys.contains(&generic(*d)))
+            });
+            if prefix {
+                (self.sink)(HotkeyEvent::Prefix);
+            }
+        }
         if is_down {
             if let Some(s) = shortcuts.iter().find(|s| combo_matches(&s.keys, &self.down)) {
                 if s.action == Action::Dismiss && !self.shared.dismiss_armed.load(Ordering::Relaxed) {
@@ -219,6 +230,14 @@ pub mod mac_codes {
     pub const KEY_3: u32 = 20;
 }
 
+/// Key events from Flow's own windows (see `windows::feed`).
+pub fn feed(vk: u32, down: bool) {
+    #[cfg(windows)]
+    windows::feed(vk, down);
+    #[cfg(not(windows))]
+    let _ = (vk, down);
+}
+
 pub fn start(shared: Arc<Shared>, sink: Sink) {
     #[cfg(windows)]
     windows::start(shared, sink);
@@ -244,7 +263,14 @@ mod tests {
         });
         let log = Arc::new(Mutex::new(vec![]));
         let l2 = log.clone();
-        let m = Matcher::new(shared, Arc::new(move |e| l2.lock().push(format!("{e:?}"))));
+        let m = Matcher::new(
+            shared,
+            Arc::new(move |e| {
+                if !matches!(e, HotkeyEvent::Prefix) {
+                    l2.lock().push(format!("{e:?}"))
+                }
+            }),
+        );
         (m, log)
     }
 
@@ -315,6 +341,22 @@ mod tests {
         m.key(0x5B, true);
         m.key(0x5B, false);
         assert_eq!(log.lock().join(","), "Pressed(PushToTalk),Released(PushToTalk)");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn prefix_warms_mic() {
+        let shared = Arc::new(Shared {
+            shortcuts: RwLock::new(crate::settings::default_shortcuts()),
+            dismiss_armed: AtomicBool::new(false),
+            recording: AtomicBool::new(false),
+            enabled: AtomicBool::new(true),
+        });
+        let log = Arc::new(Mutex::new(vec![]));
+        let l2 = log.clone();
+        let mut m = Matcher::new(shared, Arc::new(move |e| l2.lock().push(format!("{e:?}"))));
+        m.key(0x11, true); // Ctrl: start of Ctrl+Win
+        assert_eq!(log.lock()[0], "Prefix");
     }
 
     #[cfg(windows)]

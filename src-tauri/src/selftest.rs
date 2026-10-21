@@ -126,3 +126,60 @@ async fn tx(whisper: &str, s: &[f32], prev: &str) -> String {
     let raw = llm::transcribe(whisper, audio::to_wav(&padded), "en", &llm::tail(prev, 300)).await.unwrap_or_default();
     textproc::strip_artifacts(&raw)
 }
+
+/// `toolbay-flow --pipeline <whisper-url> <wav>...`
+/// Regression check for dropped words: replays each recording through the same
+/// streaming chunking and silence trimming dictation uses, and compares it with a
+/// plain transcription of the whole file. Prints word recall (1.0 = nothing lost).
+pub fn pipeline(args: &[String]) -> i32 {
+    let rt = tokio::runtime::Runtime::new().expect("runtime");
+    rt.block_on(async {
+        let Some(whisper) = args.first() else { return 2 };
+        for path in &args[1..] {
+            let samples = audio::from_wav(&std::fs::read(path).unwrap_or_default()).unwrap_or_default();
+            let (parts, tail_from) = stream_emulate(whisper, &samples).await;
+            let tail = tx(whisper, &samples[tail_from..], &parts.join(" ")).await;
+            let streamed = [parts.join(" "), tail].join(" ").trim().to_string();
+            let mut whole_audio = samples.clone();
+            audio::normalize(&mut whole_audio);
+            let whole = llm::transcribe(whisper, audio::to_wav(&whole_audio), "en", "").await.unwrap_or_default();
+            let words = |t: &str| t.to_lowercase().split(|c: char| !c.is_alphanumeric() && c != '\'').filter(|w| !w.is_empty()).map(|w| w.to_string()).collect::<Vec<_>>();
+            let (w, s) = (words(&whole), words(&streamed));
+            let mut pool = s.clone();
+            let mut hit = 0;
+            for x in &w {
+                if let Some(i) = pool.iter().position(|y| y == x) {
+                    pool.remove(i);
+                    hit += 1;
+                }
+            }
+            let recall = if w.is_empty() { 1.0 } else { hit as f64 / w.len() as f64 };
+            println!("{}", serde_json::json!({"file": path, "chunks": parts.len(), "recall": (recall * 1000.0).round() / 1000.0, "streamed": streamed, "whole": whole.trim()}));
+        }
+        0
+    })
+}
+
+/// Cuts a recording the way the live stream loop does (a check every 350 ms, chunks
+/// of at least 6 s, cuts in clear pauses) and transcribes each finished chunk.
+async fn stream_emulate(whisper: &str, samples: &[f32]) -> (Vec<String>, usize) {
+    const MIN_CHUNK: usize = 16_000 * 6;
+    let mut committed = 0usize;
+    let mut parts: Vec<String> = vec![];
+    let mut t = MIN_CHUNK;
+    while t <= samples.len() {
+        if t >= committed + MIN_CHUNK {
+            if let Some(cut) = audio::find_cut(&samples[..t], committed + MIN_CHUNK - 16_000) {
+                if cut > committed {
+                    let txt = tx(whisper, &samples[committed..cut], &parts.join(" ")).await;
+                    if !txt.trim().is_empty() {
+                        parts.push(txt);
+                    }
+                    committed = cut;
+                }
+            }
+        }
+        t += 5600;
+    }
+    (parts, committed)
+}
