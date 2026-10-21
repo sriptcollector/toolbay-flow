@@ -58,7 +58,6 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           if [ -n "$APPLE_CERTIFICATE" ]; then
@@ -70,7 +69,8 @@ jobs:
             if [ -n "$APPLE_ID" ] && [ -n "$APPLE_TEAM_ID" ]; then
               echo "Notarization: on"
               echo "APPLE_ID=$APPLE_ID" >> "$GITHUB_ENV"
-              echo "APPLE_PASSWORD=${APPLE_APP_PASSWORD:-$APPLE_PASSWORD}" >> "$GITHUB_ENV"
+              # tauri's notarization reads the app-specific password as APPLE_PASSWORD.
+              echo "APPLE_PASSWORD=$APPLE_APP_PASSWORD" >> "$GITHUB_ENV"
               echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> "$GITHUB_ENV"
             fi
           else
@@ -118,8 +118,9 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$mnt"/*.app
           hdiutil detach "$mnt"
           if [ -n "${APPLE_ID:-}" ]; then
-            spctl --assess --type execute --verbose=4 "$app"
+            spctl -a -vv --type execute "$app"
             xcrun stapler validate "$app"
+            xcrun stapler validate "$dmg" || echo "DMG itself not stapled (the app inside is)"
           fi
 
   manifest:
