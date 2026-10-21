@@ -42,6 +42,36 @@ jobs:
       - run: npm run bundle
         env:
           TAURI_ENV_TARGET_TRIPLE: ${{ matrix.os == 'windows-latest' && 'x86_64-pc-windows-msvc' || (contains(matrix.args, 'aarch64') && 'aarch64-apple-darwin' || 'x86_64-apple-darwin') }}
+      # Tauri doesn't sign programs placed in Resources (the bundled speech
+      # engine), so sign every Mach-O there first: Developer ID when the
+      # certificate exists, otherwise ad-hoc. Notarization rejects unsigned ones.
+      - name: Sign bundled engines (macOS)
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          id="-"; extra=()
+          if [ -n "${APPLE_CERTIFICATE:-}" ]; then
+            kc=$RUNNER_TEMP/engines.keychain-db; pw=$(uuidgen)
+            echo "$APPLE_CERTIFICATE" | base64 --decode > $RUNNER_TEMP/cert.p12
+            security create-keychain -p "$pw" "$kc"
+            security set-keychain-settings -lut 3600 "$kc"
+            security unlock-keychain -p "$pw" "$kc"
+            security import $RUNNER_TEMP/cert.p12 -k "$kc" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple: -s -k "$pw" "$kc" >/dev/null
+            security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+            rm $RUNNER_TEMP/cert.p12
+            id="Developer ID Application"; extra=(--timestamp)
+          fi
+          find src-tauri/bundled -type f | while read -r f; do
+            if file "$f" | grep -q Mach-O; then
+              codesign --force --options runtime ${extra[@]+"${extra[@]}"} -s "$id" "$f"
+              codesign --verify --strict --verbose=2 "$f"
+            fi
+          done
       - run: cargo test --manifest-path src-tauri/Cargo.toml
         if: matrix.os == 'windows-latest'
       # macOS: always at least ad-hoc signed with the hardened runtime and
@@ -112,6 +142,17 @@ jobs:
           app=$(ls -d "$bundle"/macos/*.app | head -1)
           codesign --verify --deep --strict --verbose=2 "$app"
           codesign -d --entitlements :- "$app" | grep -q audio-input
+          # Every bundled program inside Resources is signed and runs.
+          find "$app/Contents/Resources" -type f | while read -r f; do
+            if file "$f" | grep -q Mach-O; then
+              codesign --verify --strict --verbose=2 "$f"
+              if [[ "$f" == *whisper-server* ]] && [[ "$triple" == aarch64* ]]; then
+                rc=0; "$f" --help >/dev/null 2>&1 || rc=$?
+                # A signing problem kills the process (exit 128+); usage errors are fine.
+                if [ "$rc" -ge 128 ]; then echo "engine won't run ($rc): $f"; exit 1; fi
+              fi
+            fi
+          done
           codesign -d --verbose=4 "$app" 2>&1 | grep -E "^(Authority|Signature|TeamIdentifier|Runtime|flags)" || true
           dmg=$(ls "$bundle"/dmg/*.dmg | head -1)
           mnt=$(hdiutil attach -nobrowse -readonly "$dmg" | tail -1 | awk -F'	' '{print $NF}')
