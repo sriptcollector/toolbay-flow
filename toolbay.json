@@ -4,7 +4,7 @@
   "name": "Toolbay Flow",
   "tagline": "Free, local voice dictation in any app",
   "description": "Hold a key, speak, let go: clean, punctuated text appears wherever your cursor is. Speech recognition and cleanup run on your computer. No account, no word limits, no telemetry.",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "repo": "sriptcollector/toolbay-flow",
   "identifier": "ai.toolbay.flow",
   "license": "MIT",
@@ -25,7 +25,7 @@
   ],
   "platforms": {
     "windows-x86_64": {
-      "asset": "Toolbay.Flow_0.4.3_x64-setup.exe",
+      "asset": "Toolbay.Flow_0.4.4_x64-setup.exe",
       "kind": "nsis",
       "silentArgs": [
         "/S",
@@ -33,22 +33,22 @@
       ],
       "exe": "toolbay-flow.exe",
       "uninstaller": "uninstall.exe",
-      "size": 61036072,
-      "sha256": "97de0035a012b6df5c0375f7e8d5cdca1db93e308b7d2f63901183c16e3059eb"
+      "size": 61039035,
+      "sha256": "1c0312e7ec9917430ece5235be966cb25482ae800537d8c350f91716b1f8afb3"
     },
     "darwin-aarch64": {
-      "asset": "Toolbay.Flow_0.4.3_aarch64.dmg",
+      "asset": "Toolbay.Flow_0.4.4_aarch64.dmg",
       "kind": "dmg",
       "app": "Toolbay Flow.app",
-      "size": 65493886,
-      "sha256": "dcee82ca3d962614a0054d8c1008db09248d4747e1226b17241b7f809722e956"
+      "size": 65494406,
+      "sha256": "a20aec8d119ffdfd793902a89c35b34d24b2f389f76f836f38c1084270e241bf"
     },
     "darwin-x86_64": {
-      "asset": "Toolbay.Flow_0.4.3_x64.dmg",
+      "asset": "Toolbay.Flow_0.4.4_x64.dmg",
       "kind": "dmg",
       "app": "Toolbay Flow.app",
-      "size": 66083697,
-      "sha256": "10ca931c3144770a99eb4fc6ba28d54ba24076220ef53f022a4a45c37a4295d4"
+      "size": 66085567,
+      "sha256": "e1dd346e152b940a9df6ed23b977b465eb156a2665d77d26d27b260275b77848"
     }
   },
   "files": [],
