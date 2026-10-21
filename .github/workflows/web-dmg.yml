@@ -32,7 +32,6 @@ jobs:
             cp "Toolbay.Flow_${arch}.pkg" "$dir/Install Toolbay Flow.pkg"
             out="${{ inputs.prefix }}_${arch}.dmg"
             hdiutil create -volname "Toolbay Flow" -srcfolder "$dir" -ov -format UDZO "$out"
-            hdiutil attach -nobrowse -readonly "$out" | tail -1
-            ls "/Volumes/Toolbay Flow"; hdiutil detach "/Volumes/Toolbay Flow"
+            hdiutil verify "$out"
             gh release upload -R "$GITHUB_REPOSITORY" "${{ inputs.release }}" "$out" --clobber
           done
