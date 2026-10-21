@@ -44,9 +44,12 @@ jobs:
           TAURI_ENV_TARGET_TRIPLE: ${{ matrix.os == 'windows-latest' && 'x86_64-pc-windows-msvc' || (contains(matrix.args, 'aarch64') && 'aarch64-apple-darwin' || 'x86_64-apple-darwin') }}
       - run: cargo test --manifest-path src-tauri/Cargo.toml
         if: matrix.os == 'windows-latest'
-      # Code signing turns on by itself once the certificates are added as
-      # repository secrets (see docs/SIGNING.md). Without them builds are unsigned.
-      - name: Apple signing and notarization (if configured)
+      # macOS: always at least ad-hoc signed with the hardened runtime and
+      # Entitlements.plist (signingIdentity "-" in tauri.conf.json), so Gatekeeper
+      # offers "Open Anyway" instead of calling the app damaged. Once the Apple
+      # secrets exist (docs/SIGNING.md) the same build is signed with the
+      # Developer ID certificate, notarized with notarytool and stapled.
+      - name: Apple Developer ID signing and notarization (if configured)
         if: matrix.os == 'macos-latest'
         shell: bash
         env:
@@ -54,13 +57,24 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           if [ -n "$APPLE_CERTIFICATE" ]; then
-            for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
-              echo "$v=${!v}" >> "$GITHUB_ENV"
-            done
+            echo "Developer ID signing: on"
+            echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE" >> "$GITHUB_ENV"
+            echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD" >> "$GITHUB_ENV"
+            # codesign matches by name; "Developer ID Application" finds the imported cert.
+            echo "APPLE_SIGNING_IDENTITY=${APPLE_SIGNING_IDENTITY:-Developer ID Application}" >> "$GITHUB_ENV"
+            if [ -n "$APPLE_ID" ] && [ -n "$APPLE_TEAM_ID" ]; then
+              echo "Notarization: on"
+              echo "APPLE_ID=$APPLE_ID" >> "$GITHUB_ENV"
+              echo "APPLE_PASSWORD=${APPLE_APP_PASSWORD:-$APPLE_PASSWORD}" >> "$GITHUB_ENV"
+              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> "$GITHUB_ENV"
+            fi
+          else
+            echo "No Apple certificate yet: ad-hoc signing only"
           fi
       - name: Windows signing (if configured)
         if: matrix.os == 'windows-latest'
@@ -87,6 +101,26 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+      # Fail the build if the Mac app or the app inside the DMG isn't properly sealed.
+      - name: Verify macOS signature
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          triple=${{ contains(matrix.args, 'aarch64') && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
+          bundle=src-tauri/target/$triple/release/bundle
+          app=$(ls -d "$bundle"/macos/*.app | head -1)
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -d --entitlements :- "$app" | grep -q audio-input
+          codesign -d --verbose=4 "$app" 2>&1 | grep -E "^(Authority|Signature|TeamIdentifier|Runtime|flags)" || true
+          dmg=$(ls "$bundle"/dmg/*.dmg | head -1)
+          mnt=$(hdiutil attach -nobrowse -readonly "$dmg" | tail -1 | awk -F'	' '{print $NF}')
+          codesign --verify --deep --strict --verbose=2 "$mnt"/*.app
+          hdiutil detach "$mnt"
+          if [ -n "${APPLE_ID:-}" ]; then
+            spctl --assess --type execute --verbose=4 "$app"
+            xcrun stapler validate "$app"
+          fi
 
   manifest:
     # toolbay.json for the Toolbay hub, with the real size and sha256 of each installer.

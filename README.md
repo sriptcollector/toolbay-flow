@@ -30,6 +30,9 @@ laptop gets compact models that stay instant on the CPU).
 
 **macOS (Apple Silicon or Intel):** download the `.dmg` from Releases. The macOS build is produced by CI but has
 not been tested on a real Mac yet; see *Status* below. Grant Microphone, Accessibility and Input Monitoring when asked.
+Until Toolbay Flow is notarized by Apple, the first launch says Apple can't check it: click **Done**, open
+**System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to Toolbay Flow, then confirm.
+You only do this once.
 
 **Through the Toolbay app:** open Toolbay, find *Flow*, click Install. Toolbay reads [`toolbay.json`](toolbay.json),
 downloads the installer from the latest GitHub release and launches Flow in its own window.
