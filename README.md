@@ -28,11 +28,11 @@ includes a small speech model, so you can dictate straight away, offline. Flow t
 by itself and fetches them quietly in the background (a fast GPU gets Large v3 Turbo plus a 4B cleanup model; an ordinary
 laptop gets compact models that stay instant on the CPU).
 
-**macOS (Apple Silicon or Intel):** download the `.dmg` from Releases. The macOS build is produced by CI but has
+**macOS (Apple Silicon or Intel):** download the `.pkg` installer from Releases (`aarch64` for Apple Silicon, `x64` for Intel). The macOS build is produced by CI but has
 not been tested on a real Mac yet; see *Status* below. Grant Microphone, Accessibility and Input Monitoring when asked.
-Until Toolbay Flow is notarized by Apple, the first launch says Apple can't check it: click **Done**, open
-**System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to Toolbay Flow, then confirm.
-You only do this once.
+Until Toolbay Flow is notarized by Apple, opening the installer says Apple can't check it: click **Done**, open
+**System Settings → Privacy & Security**, scroll down and click **Open Anyway**, then confirm. The installer puts
+Toolbay Flow in Applications and it opens normally from then on.
 
 **Through the Toolbay app:** open Toolbay, find *Flow*, click Install. Toolbay reads [`toolbay.json`](toolbay.json),
 downloads the installer from the latest GitHub release and launches Flow in its own window.

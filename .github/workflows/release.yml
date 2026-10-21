@@ -128,6 +128,43 @@ jobs:
             xcrun stapler validate "$dmg" || echo "DMG itself not stapled (the app inside is)"
           fi
 
+      # A .pkg installer for people downloading from the web. macOS treats an
+      # unsigned installer package as "unidentified developer" (Open Anyway),
+      # not "damaged", and apps it installs aren't flagged as downloaded, so
+      # Toolbay Flow then opens normally. Signed with Developer ID Installer once
+      # that certificate exists (APPLE_INSTALLER_IDENTITY).
+      - name: macOS installer package
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_INSTALLER_IDENTITY: ${{ secrets.APPLE_INSTALLER_IDENTITY }}
+        run: |
+          set -euo pipefail
+          triple=${{ contains(matrix.args, 'aarch64') && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
+          arch=${{ contains(matrix.args, 'aarch64') && 'aarch64' || 'x64' }}
+          ver=${GITHUB_REF_NAME#v}
+          app=$(ls -d src-tauri/target/$triple/release/bundle/macos/*.app | head -1)
+          chmod +x scripts/macos-pkg/postinstall
+          out="Toolbay.Flow_${ver}_${arch}.pkg"
+          sign=()
+          if [ -n "${APPLE_INSTALLER_IDENTITY:-}" ]; then sign=(--sign "$APPLE_INSTALLER_IDENTITY"); fi
+          # Fixed location: never "relocate" the install onto an old copy elsewhere.
+          root=$(mktemp -d); cp -R "$app" "$root/"
+          pkgbuild --analyze --root "$root" comp.plist
+          plutil -replace 0.BundleIsRelocatable -bool NO comp.plist
+          pkgbuild --root "$root" --component-plist comp.plist --install-location /Applications             --identifier ai.toolbay.flow.pkg --version "$ver" --scripts scripts/macos-pkg ${sign[@]+"${sign[@]}"} "$out"
+          # Gatekeeper's verdict for the downloaded package (printed, not fatal).
+          xattr -w com.apple.quarantine "0081;$(printf %x $(date +%s));Safari;" "$out"
+          echo "Gatekeeper verdict for the downloaded .pkg:"; spctl -a -vv -t install "$out" 2>&1 || true
+          xattr -d com.apple.quarantine "$out"
+          # Prove it installs and the installed app is intact and not flagged.
+          sudo installer -pkg "$out" -target /
+          codesign --verify --deep --strict --verbose=2 "/Applications/Toolbay Flow.app"
+          if xattr -p com.apple.quarantine "/Applications/Toolbay Flow.app" 2>/dev/null; then echo "installed app is quarantined"; exit 1; fi
+          echo "Installed app is clean."
+          gh release upload "$GITHUB_REF_NAME" "$out" --clobber
+
   manifest:
     # toolbay.json for the Toolbay hub, with the real size and sha256 of each installer.
     needs: app
