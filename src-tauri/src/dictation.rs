@@ -51,6 +51,8 @@ struct Recovery {
     samples: Vec<f32>,
     mode: Mode,
     dur: Duration,
+    /// The "cancelled" history row kept for it (0 if none).
+    hist_id: i64,
 }
 
 /// Timings learned from the original app (docs/parity/dictation-core.md).
@@ -544,6 +546,11 @@ pub fn recover(st: &St) {
             process(&st2, raw, r.samples.clone(), r.mode, ctx, r.dur, gen, released).await
         }
         .await;
+        if matches!(res, Ok(Some(_))) && r.hist_id > 0 {
+            // The recovered text has its own row now.
+            let _ = st2.db.delete_history(r.hist_id);
+            let _ = st2.app.emit("history-changed", ());
+        }
         finish(&st2, gen, r.mode, res);
     });
 }
@@ -709,7 +716,7 @@ fn cancel_keep(st: &St) -> bool {
     let kept = match phase {
         Phase::Recording => {
             let samples = discard(st);
-            Some(Recovery { samples, mode, dur })
+            Some(Recovery { samples, mode, dur, hist_id: 0 })
         }
         Phase::Processing => {
             discard(st);
@@ -718,7 +725,26 @@ fn cancel_keep(st: &St) -> bool {
         Phase::Idle => return false,
     };
     let useful = kept.as_ref().map(|r| audio::has_speech(&r.samples)).unwrap_or(false);
-    *st.recovery.lock() = if useful { kept } else { None };
+    let mut kept = if useful { kept } else { None };
+    // Like the original, a cancelled dictation stays in history so it can be recovered later.
+    if let Some(r) = kept.as_mut() {
+        let (policy, keep_audio) = {
+            let s = st.settings.read();
+            (s.data_policy.clone(), s.keep_audio)
+        };
+        if policy != DataPolicy::NeverStore && keep_audio && r.hist_id == 0 {
+            let item = HistoryItem {
+                mode: if r.mode == Mode::Command { "command".into() } else { "dictation".into() },
+                duration_ms: r.dur.as_millis() as i64,
+                language: st.settings.read().language.clone(),
+                status: "cancelled".into(),
+                ..Default::default()
+            };
+            r.hist_id = st.db.add_history(&item, Some(&audio::to_wav(&r.samples))).unwrap_or(0);
+            let _ = st.app.emit("history-changed", ());
+        }
+    }
+    *st.recovery.lock() = kept;
     useful
 }
 
@@ -753,7 +779,7 @@ pub fn stop(st: &St) {
         sounds::play(Sound::Stop);
     }
     st.bar("processing", Some(mode), None);
-    *st.in_flight.lock() = Some(Recovery { samples: samples.clone(), mode, dur });
+    *st.in_flight.lock() = Some(Recovery { samples: samples.clone(), mode, dur, hist_id: 0 });
     let gen = st.generation.load(Ordering::SeqCst);
     let st2 = st.clone();
     tauri::async_runtime::spawn(async move {
@@ -1288,6 +1314,9 @@ fn transform_shortcut_label(st: &St, i: usize) -> String {
 
 /// Re-runs a history item from its saved audio.
 pub async fn retry(st: &St, id: i64) -> Result<String> {
+    if st.session.lock().phase != Phase::Idle {
+        return Err(anyhow!("You can't retry while dictating"));
+    }
     let wav = st.db.get_audio(id)?.ok_or_else(|| anyhow!("No audio saved for this dictation"))?;
     let samples = audio::from_wav(&wav)?;
     let raw = transcribe(st, &samples).await?;

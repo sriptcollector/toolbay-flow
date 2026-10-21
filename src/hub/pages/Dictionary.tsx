@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Star, Trash2, Sparkles } from "lucide-react";
 import { api, DictEntry, on } from "../../api";
-import { Empty, Modal, Row, Section, Tabs, Toggle, useSettings } from "../ui";
+import { Empty, ImportButton, Modal, Row, Section, Tabs, Toggle, useSettings } from "../ui";
 
 const EXAMPLES = ["Toolbay", "Kubernetes", "Q4 planning", "Siobhan"];
 type Filter = "all" | "starred" | "learned";
@@ -37,9 +37,12 @@ export default function Dictionary() {
     <div className="page">
       <header className="page-head">
         <h1>Dictionary</h1>
-        <button className="btn primary" onClick={() => open()}>
-          Add new
-        </button>
+        <div className="head-actions">
+          <ImportButton snippets={false} onDone={load} />
+          <button className="btn primary" onClick={() => open()}>
+            Add new
+          </button>
+        </div>
       </header>
       <Tabs
         tabs={[

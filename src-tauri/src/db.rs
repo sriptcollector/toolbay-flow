@@ -384,7 +384,7 @@ impl Db {
         let c = self.0.lock();
         let mut st = c.prepare(
             "SELECT sync_id, created_at, mode, raw_text, text, app, window_title, language, duration_ms, latency_ms, words, status, edited_text
-             FROM history WHERE archived=0 ORDER BY created_at DESC LIMIT ?1",
+             FROM history WHERE archived=0 AND status<>'cancelled' ORDER BY created_at DESC LIMIT ?1",
         )?;
         let rows = st.query_map(params![limit], |r| {
             Ok((

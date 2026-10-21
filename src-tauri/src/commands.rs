@@ -169,6 +169,11 @@ pub fn history_clear(st: State<St>) -> R<()> {
 }
 
 #[tauri::command]
+pub fn history_audio(st: State<St>, id: i64) -> R<Vec<u8>> {
+    st.db.get_audio(id).map_err(e)?.ok_or_else(|| "No audio saved for this dictation".to_string())
+}
+
+#[tauri::command]
 pub async fn history_retry(st: State<'_, St>, id: i64) -> R<String> {
     let st = st.inner().clone();
     dictation::retry(&st, id).await.map_err(e)
@@ -187,6 +192,23 @@ pub fn dict_list(st: State<St>, snippets: bool) -> R<Vec<DictEntry>> {
 #[tauri::command]
 pub fn dict_save(st: State<St>, entry: DictEntry) -> R<i64> {
     st.db.upsert_dict(&entry).map_err(e)
+}
+
+/// Reads a dictionary (CSV) or snippets (JSON) file and says what would be added.
+#[tauri::command]
+pub fn dict_import_preview(st: State<St>, text: String, snippets: bool) -> R<crate::import::ImportPreview> {
+    let existing: Vec<String> = st.db.list_dict(snippets).map_err(e)?.into_iter().map(|d| d.phrase).collect();
+    Ok(if snippets { crate::import::parse_snippets_json(&text, &existing) } else { crate::import::parse_dictionary_csv(&text, &existing) })
+}
+
+#[tauri::command]
+pub fn dict_import(st: State<St>, items: Vec<crate::import::ImportItem>, snippets: bool) -> R<usize> {
+    for it in &items {
+        let d = DictEntry { phrase: it.phrase.clone(), replacement: it.replacement.clone(), is_snippet: snippets, source: "import".into(), ..Default::default() };
+        st.db.upsert_dict(&d).map_err(e)?;
+    }
+    let _ = st.app.emit("dictionary-changed", ());
+    Ok(items.len())
 }
 
 #[tauri::command]

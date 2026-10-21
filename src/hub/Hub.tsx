@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useState } from "react";
 import { MessageSquareHeart, Mic, ChartColumnBig, BookA, Scissors, Type, WandSparkles, NotebookPen, Cpu, Keyboard, Settings as Gear, CircleHelp, PanelLeft, CircleUserRound, Minus, Square, X } from "lucide-react";
 import { api, on } from "../api";
-import { useSettings } from "./ui";
+import { Toaster, useSettings } from "./ui";
 import Onboarding from "./Onboarding";
 import Feedback from "./Feedback";
 import Home from "./pages/Home";
@@ -154,6 +154,7 @@ export default function Hub() {
         <Current key={page} go={(p: string) => (p === "feedback" ? setFeedback(true) : setPage(p as PageId))} />
       </main>
       {feedback && <Feedback onClose={() => setFeedback(false)} />}
+      <Toaster />
     </div>
   );
 }

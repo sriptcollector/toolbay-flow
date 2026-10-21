@@ -169,3 +169,103 @@ export function Tabs<T extends string>({ tabs, value, onChange }: { tabs: [T, st
     </div>
   );
 }
+
+/** Short message at the bottom of the hub (like the original's toasts). */
+export function toast(text: string) {
+  window.dispatchEvent(new CustomEvent("flow-toast", { detail: text }));
+}
+
+export function Toaster() {
+  const [msg, setMsg] = useState<{ text: string; n: number } | null>(null);
+  useEffect(() => {
+    let t: number | undefined;
+    const show = (e: Event) => {
+      window.clearTimeout(t);
+      setMsg((m) => ({ text: (e as CustomEvent<string>).detail, n: (m?.n ?? 0) + 1 }));
+      t = window.setTimeout(() => setMsg(null), 3000);
+    };
+    window.addEventListener("flow-toast", show);
+    return () => {
+      window.removeEventListener("flow-toast", show);
+      window.clearTimeout(t);
+    };
+  }, []);
+  return msg ? (
+    <div key={msg.n} className="toast" role="status">
+      {msg.text}
+    </div>
+  ) : null;
+}
+
+/** "Import" button: pick a file, preview what would be added, then add it. */
+export function ImportButton({ snippets, onDone }: { snippets: boolean; onDone: () => void }) {
+  const [preview, setPreview] = useState<import("../api").ImportPreview | null>(null);
+  const pick = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = snippets ? ".json" : ".csv";
+    input.onchange = async () => {
+      const f = input.files?.[0];
+      if (!f) return;
+      setPreview(await api.dictImportPreview(await f.text(), snippets));
+    };
+    input.click();
+  };
+  const noun = snippets ? "snippet" : "word";
+  const n = preview?.items.length ?? 0;
+  return (
+    <>
+      <button className="btn" onClick={pick}>
+        Import
+      </button>
+      {preview && (
+        <Modal
+          title={snippets ? "Import snippets" : "Import dictionary"}
+          onClose={() => setPreview(null)}
+          actions={
+            <>
+              <button className="btn" onClick={() => setPreview(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn primary"
+                disabled={n === 0}
+                onClick={async () => {
+                  const added = await api.dictImport(preview.items, snippets);
+                  setPreview(null);
+                  toast(`Added ${added} ${noun}${added === 1 ? "" : "s"}`);
+                  onDone();
+                }}
+              >
+                Add {n} {noun}
+                {n === 1 ? "" : "s"}
+              </button>
+            </>
+          }
+        >
+          {preview.error ? (
+            <p className="muted">{preview.error}</p>
+          ) : (
+            <>
+              <p className="muted">
+                {n} new {noun}
+                {n === 1 ? "" : "s"} found
+                {preview.duplicates > 0 && `, ${preview.duplicates} already here`}
+                {preview.skipped > 0 && `, ${preview.skipped} skipped (unreadable, repeated or too long)`}.
+              </p>
+              <div className="import-list">
+                {preview.items.slice(0, 50).map((i) => (
+                  <div key={i.phrase}>
+                    {i.phrase}
+                    {i.replacement && <span className="arrow"> → {i.replacement.replace(/\s+/g, " ")}</span>}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+          <p className="muted small">{snippets ? 'A .json file holding a list of {"name": …, "text": …}.' : "A .csv file: one word per line, or heard,written for a replacement."}</p>
+        </Modal>
+      )}
+    </>
+  );
+}

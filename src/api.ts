@@ -117,6 +117,16 @@ export interface HistoryItem {
   has_audio: boolean;
   edited_text: string | null;
 }
+export interface ImportItem {
+  phrase: string;
+  replacement: string | null;
+}
+export interface ImportPreview {
+  items: ImportItem[];
+  duplicates: number;
+  skipped: number;
+  error: string | null;
+}
 export interface DictEntry {
   id: number;
   phrase: string;
@@ -168,6 +178,7 @@ export const api = {
   historyDelete: (id: number) => invoke<void>("history_delete", { id }),
   historyClear: () => invoke<void>("history_clear"),
   historyRetry: (id: number) => invoke<string>("history_retry", { id }),
+  historyAudio: (id: number) => invoke<number[]>("history_audio", { id }),
   copyText: (text: string) => invoke<void>("copy_text", { text }),
   dictList: (snippets: boolean) => invoke<DictEntry[]>("dict_list", { snippets }),
   dictSave: (entry: Partial<DictEntry>) =>
@@ -175,6 +186,8 @@ export const api = {
       entry: { id: 0, replacement: null, is_snippet: false, starred: false, source: "manual", uses: 0, created_at: "", phrase: "", ...entry },
     }),
   dictDelete: (id: number) => invoke<void>("dict_delete", { id }),
+  dictImportPreview: (text: string, snippets: boolean) => invoke<ImportPreview>("dict_import_preview", { text, snippets }),
+  dictImport: (items: ImportItem[], snippets: boolean) => invoke<number>("dict_import", { items, snippets }),
   undoLearned: () => invoke<void>("undo_learned"),
   notesList: () => invoke<Note[]>("notes_list"),
   noteSave: (note: Partial<Note>) => invoke<number>("note_save", { note: { id: 0, content: "", pinned: false, updated_at: "", ...note } }),

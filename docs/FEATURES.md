@@ -31,14 +31,14 @@ team-only features that don't apply to a free local app).
 | No dropped words: adaptive silence detection, safe streaming cuts, mic pre-open on first hotkey key, 250 ms tail | Verified: a real 23 s dictation went from 51% to 97% word recall; regression clips pass (eval/pipeline.mjs) |
 | Engine: local (default) or cloud with your own key (Groq/OpenAI-compatible), local fallback | Built (cloud not tested without a key) |
 | Debug recordings (audio + raw + final text, last 20) | Built |
-| Personal dictionary: words, replacement rules, star, usage counts, speech-model biasing | Built |
+| Personal dictionary: words, replacement rules, star, usage counts, speech-model biasing, CSV import | Built (import rules traced; the original's search, sort, edit, bulk delete and toasts are not built yet) |
 | Auto-learn corrected words + "Added X" toast with Undo | Built, unit-tested. Parity: matched (toast wording style, list format, 6 s, Undo traced; how edits are watched is native code in the original and not compared; docs/parity/bar-sounds-transforms.md) |
-| Snippets with length counter | Built |
+| Snippets with length counter (4000), import from a JSON list | Built (limits and import format traced; page not yet compared screen for screen) |
 | Sync across computers with a Toolbay account: settings, styles, dictionary, snippets, transforms, shortcuts (per OS), engine choice, onboarding; optional last-50 history; never audio or API keys | Built; two-computer tests + live round trip against toolbay.ai |
 | 99 languages / auto-detect | Built |
 
 Parity coverage (`node scripts/parity.mjs`): share of rows checked against the real app with the REA tools,
-marked "Parity: matched". Every release note states it.
+marked "Parity: matched". Every release note states it. Current: **27% (13 of 48)**, as of v0.4.7 (2026-10-21).
 
 Release-to-text latency on this PC (p50 / p95, 20 runs, includes AI cleanup):
 3 s speech 159 / 185 ms · 10 s 303 / 332 ms · 30 s 845 / 893 ms.
@@ -59,7 +59,7 @@ Release-to-text latency on this PC (p50 / p95, 20 runs, includes AI cleanup):
 | Try it yourself: message, email, doc practice screens | Built (own generic mock-ups, no third-party brands) |
 | Personalize styles | Built |
 | Speedy onboarding, trial offers, referrals, team invites, Flow Pro | Omitted (free; the optional Toolbay account only syncs settings) |
-| Home: stats strip + searchable history by day (copy, original transcript, retry, delete) | Built |
+| Home: stats strip + searchable history by day (copy with paste-last hint, original transcript, play recording, retry, delete with confirm; cancelled dictations kept with Recover; no retry while dictating) | Built (traced against the original; still missing its "extract audio" and per-item feedback, so not marked matched) |
 | Insights: words, WPM, streak, time saved, heatmap, per-app | Built |
 | Dictionary, Snippets, Style, Transforms pages | Built |
 | Scratchpad notes | Built (page in the hub; no floating window, no rich text) |

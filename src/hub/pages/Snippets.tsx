@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ArrowRight, Trash2 } from "lucide-react";
 import { api, DictEntry, on } from "../../api";
-import { Empty, Modal, Tabs } from "../ui";
+import { Empty, ImportButton, Modal, Tabs } from "../ui";
 
 const MAX = 4000;
 const EXAMPLES: [string, string][] = [
@@ -34,9 +34,12 @@ export default function Snippets() {
     <div className="page">
       <header className="page-head">
         <h1>Snippets</h1>
-        <button className="btn primary" onClick={() => setEdit({ phrase: "", replacement: "" })}>
-          Add new
-        </button>
+        <div className="head-actions">
+          <ImportButton snippets onDone={load} />
+          <button className="btn primary" onClick={() => setEdit({ phrase: "", replacement: "" })}>
+            Add new
+          </button>
+        </div>
       </header>
       <Tabs
         tabs={[

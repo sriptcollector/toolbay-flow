@@ -512,3 +512,22 @@
   scrollbar-width: thin;
   scrollbar-color: var(--line-strong) transparent;
 }
+
+.import-list {
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin: 8px 0;
+  font-size: 14px;
+}
+.muted.small {
+  font-size: 12.5px;
+}
+
+.head-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}

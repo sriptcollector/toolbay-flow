@@ -8,6 +8,7 @@ mod dictation;
 mod engines;
 mod hotkeys;
 mod hub;
+mod import;
 mod llm;
 mod logging;
 mod updates;
@@ -366,6 +367,9 @@ pub fn run() {
             commands::history_delete,
             commands::history_clear,
             commands::history_retry,
+            commands::history_audio,
+            commands::dict_import_preview,
+            commands::dict_import,
             commands::copy_text,
             commands::dict_list,
             commands::dict_save,
