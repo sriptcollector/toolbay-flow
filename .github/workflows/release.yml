@@ -117,6 +117,11 @@ jobs:
           mnt=$(hdiutil attach -nobrowse -readonly "$dmg" | tail -1 | awk -F'	' '{print $NF}')
           codesign --verify --deep --strict --verbose=2 "$mnt"/*.app
           hdiutil detach "$mnt"
+          # What a person who downloads it will see: quarantine a copy like Safari does
+          # and ask Gatekeeper for its verdict (printed, not fatal).
+          tmp=$(mktemp -d); cp -R "$app" "$tmp/"; qapp="$tmp/$(basename "$app")"
+          xattr -w com.apple.quarantine "0081;$(printf %x $(date +%s));Safari;" "$qapp"
+          echo "Gatekeeper verdict for a downloaded copy:"; spctl -a -vv -t exec "$qapp" 2>&1 || true
           if [ -n "${APPLE_ID:-}" ]; then
             spctl -a -vv --type execute "$app"
             xcrun stapler validate "$app"
