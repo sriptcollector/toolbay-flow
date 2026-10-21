@@ -121,13 +121,18 @@ jobs:
             for v in AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_TENANT_ID; do echo "$v=${!v}" >> "$GITHUB_ENV"; done
             node -e "const f='src-tauri/tauri.conf.json';const j=require('./'+f);j.bundle.windows.signCommand='trusted-signing-cli -e https://eus.codesigning.azure.net -a $TRUSTED_SIGNING_ACCOUNT -c $TRUSTED_SIGNING_PROFILE -d \"Toolbay Flow\" %1';require('fs').writeFileSync(f,JSON.stringify(j,null,2))"
           fi
+      - name: Parity coverage
+        shell: bash
+        run: echo "PARITY=$(node scripts/parity.mjs)" >> "$GITHUB_ENV"
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Toolbay Flow ${{ github.ref_name }}"
-          releaseBody: "Free, local, open-source voice dictation. Download the installer for your computer below. See the README for details."
+          releaseBody: "Free, local, open-source voice dictation. Download the installer for your computer below (Mac: the .pkg). See the README for details.
+
+Parity with Wispr Flow: ${{ env.PARITY }}."
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

@@ -58,6 +58,16 @@ change, and the "Toolbay tool rules" apply to every Toolbay app.
     - Sign-in is the Toolbay app's (OS keychain entry `ai.toolbay.desktop`/`session`, or
       `TOOLBAY_TOKEN`). Tools read it, never store their own copy, and only talk to toolbay.ai.
 
+13. **Reverse-engineer to match the real app, every change.** Before building or changing a
+    feature, trace how the original does it with the reverse-engineering tools (REA:
+    trace_application_feature, analyze_javascript_application, capture_electron_scenario,
+    inspect_electron_page, observe_native_ui, compare_application_versions), then check ours
+    against the real app installed on the dev machine: timings, states, edge cases, errors. Track
+    it with verify_reconstruction / evaluate_reconstruction_coverage and mark the row
+    "Parity: matched" in `docs/FEATURES.md`. Every release note states the parity coverage from
+    `node scripts/parity.mjs`. Clean-room still applies: learn behaviour, write our own code, copy
+    no code or assets, never use the original's servers or keys.
+
 ## Working on Flow
 
 - `npm run tauri dev` to run, `npm run tauri build` for the installer (it fetches the bundled

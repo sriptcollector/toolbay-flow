@@ -36,6 +36,9 @@ team-only features that don't apply to a free local app).
 | Sync across computers with a Toolbay account: settings, styles, dictionary, snippets, transforms, shortcuts (per OS), engine choice, onboarding; optional last-50 history; never audio or API keys | Built; two-computer tests + live round trip against toolbay.ai |
 | 99 languages / auto-detect | Built |
 
+Parity coverage (`node scripts/parity.mjs`): share of rows checked against the real app with the REA tools,
+marked "Parity: matched". Every release note states it.
+
 Release-to-text latency on this PC (p50 / p95, 20 runs, includes AI cleanup):
 3 s speech 159 / 185 ms · 10 s 303 / 332 ms · 30 s 845 / 893 ms.
 
@@ -43,7 +46,7 @@ Release-to-text latency on this PC (p50 / p95, 20 runs, includes AI cleanup):
 
 | Original screen / element | Toolbay Flow |
 |---|---|
-| Look: warm-paper light theme + dark, frameless window with own title bar, 216px collapsible sidebar, rounded content panel, serif display headings, banners, underlined tabs | Built; checked side by side against the original's media-kit screenshots (Dictation, Insights, Dictionary, Snippets, Style) |
+| Look: warm-paper light theme + dark, frameless window with own title bar, 216px collapsible sidebar, rounded content panel, serif display headings, banners, underlined tabs | Built; checked side by side against the original's media-kit screenshots (Dictation, Insights, Dictionary, Snippets, Style). Parity: matched (screens) |
 | Onboarding: welcome | Built, with "Inspired by" credit |
 | About you (role, where you heard) | Built (stays local) |
 | Where you spend time typing | Built |
@@ -60,7 +63,7 @@ Release-to-text latency on this PC (p50 / p95, 20 runs, includes AI cleanup):
 | Dictionary, Snippets, Style, Transforms pages | Built |
 | Scratchpad notes | Built (page in the hub; no floating window, no rich text) |
 | Settings: general, voice, cleanup, experimental, data & privacy, about | Built |
-| Flow bar: rest sliver, hover, waveform, hands-free buttons, command colour, processing, done, error, toasts, follows monitor, click-through | Built |
+| Flow bar: rest sliver, hover, waveform, hands-free buttons, command colour, processing, done, error, toasts, follows monitor, click-through | Built; sizes, colours, waveform and timing from the original's shipped CSS. Parity: matched (static) |
 | Flow bar right-click menu: paste last, microphone, hide for 1 hour, open | Built |
 | Tray menu: open, paste last, microphone, language, bar toggle, shortcuts, settings, share feedback, quit | Built |
 | Share feedback (feedback, bug, idea, show off) to the Toolbay Flow community on toolbay.ai; optional private debug info for bugs | Built |
