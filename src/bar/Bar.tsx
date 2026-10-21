@@ -9,13 +9,16 @@ interface BarState {
   phase: Phase;
   mode: Mode | null;
   message: string | null;
+  /** Optional button: [label, bar action id]. */
+  action?: [string, string] | null;
+  ms?: number | null;
 }
 
 const BARS = 10;
 
 export default function Bar() {
   const [st, setSt] = useState<BarState>({ phase: "idle", mode: null, message: null });
-  const [bubble, setBubble] = useState<{ text: string; kind: string } | null>(null);
+  const [bubble, setBubble] = useState<{ text: string; kind: string; action?: [string, string] | null } | null>(null);
   const [hover, setHover] = useState(false);
   const [hint, setHint] = useState("");
   const [menu, setMenu] = useState(false);
@@ -42,7 +45,7 @@ export default function Bar() {
       on<BarState>("bar-state", (s) => {
         window.clearTimeout(doneTimer.current);
         if (s.phase === "notice" || s.phase === "learned" || s.phase === "error") {
-          showBubble(s.message ?? "", s.phase);
+          showBubble(s.message ?? "", s.phase, s.action, s.ms);
           if (s.phase !== "error") return;
           setSt({ phase: "error", mode: null, message: s.message });
           doneTimer.current = window.setTimeout(() => setSt({ phase: "idle", mode: null, message: null }), 1600);
@@ -65,10 +68,10 @@ export default function Bar() {
     return () => offs.forEach((f) => f());
   }, []);
 
-  function showBubble(text: string, kind: string) {
+  function showBubble(text: string, kind: string, action?: [string, string] | null, ms?: number | null) {
     window.clearTimeout(bubbleTimer.current);
-    setBubble({ text, kind });
-    bubbleTimer.current = window.setTimeout(() => setBubble(null), kind === "learned" ? 6000 : 3200);
+    setBubble({ text, kind, action });
+    bubbleTimer.current = window.setTimeout(() => setBubble(null), ms ?? (kind === "learned" ? 6000 : 3200));
   }
 
   // Report interactive areas so the rest of the window stays click-through.
@@ -108,6 +111,16 @@ export default function Bar() {
               }}
             >
               Undo
+            </button>
+          )}
+          {bubble.action && (
+            <button
+              onClick={() => {
+                api.barAction(bubble.action![1]);
+                setBubble(null);
+              }}
+            >
+              {bubble.action[0]}
             </button>
           )}
         </div>

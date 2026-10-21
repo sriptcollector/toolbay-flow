@@ -245,15 +245,15 @@ pub fn bar_action(st: State<St>, action: String) {
         "stop" => dictation::stop(&st),
         "cancel" => dictation::cancel(&st),
         "open" => crate::show_hub(&st.app, None),
+        // The bar's menu: give focus back to the app under it before pasting.
         "paste_last" => {
-            if let Ok(Some(t)) = st.db.last_text() {
-                let restore = st.settings.read().restore_clipboard;
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(150));
-                    let _ = crate::paste::paste(&t, restore);
-                });
-            }
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(150));
+                dictation::paste_last(&st);
+            });
         }
+        "undo_cancel" => dictation::recover(&st),
+        "open_settings" => crate::show_hub(&st.app, Some("settings")),
         "hide_1h" => {
             let mut s = st.settings.read().clone();
             s.bar_snooze_until = chrono::Utc::now().timestamp() + 3600;

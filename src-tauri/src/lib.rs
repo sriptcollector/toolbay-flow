@@ -201,22 +201,29 @@ fn tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let bar = CheckMenuItem::with_id(app, "toggle_bar", "Show dictation bar", true, s.show_bar, None::<&str>)?;
     let feedback = MenuItem::with_id(app, "feedback", "Share feedback…", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Toolbay Flow", true, None::<&str>)?;
-    Menu::with_items(
-        app,
-        &[
-            &open,
-            &paste_last,
-            &PredefinedMenuItem::separator(app)?,
-            &mic,
-            &lang,
-            &bar,
-            &shortcuts,
-            &settings,
-            &PredefinedMenuItem::separator(app)?,
-            &feedback,
-            &quit,
-        ],
-    )
+    // Same order as the original's tray: open, paste last with a greyed preview
+    // of that text, shortcuts, microphone, language, then feedback and quit.
+    let last = st.db.last_text().ok().flatten().unwrap_or_default();
+    let preview = MenuItem::with_id(app, "last_preview", tray_preview(&last), false, None::<&str>)?;
+    let sep = || PredefinedMenuItem::separator(app);
+    let (s1, s2, s3) = (sep()?, sep()?, sep()?);
+    let mut items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = vec![&open, &s1, &paste_last];
+    if !last.is_empty() {
+        items.push(&preview);
+    }
+    items.extend([&s2 as &dyn tauri::menu::IsMenuItem<tauri::Wry>, &shortcuts, &mic, &lang, &s3, &settings, &bar, &feedback, &quit]);
+    Menu::with_items(app, &items)
+}
+
+/// One line of the last dictation for the tray, cut on a word.
+fn tray_preview(text: &str) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flat.chars().count() <= 40 {
+        return flat;
+    }
+    let head: String = flat.chars().take(40).collect();
+    let cut = head.rfind(' ').filter(|&i| i > 20).unwrap_or(head.len());
+    format!("{}…", head[..cut].trim_end())
 }
 
 pub fn refresh_tray(app: &AppHandle) {
@@ -234,13 +241,12 @@ fn on_menu(app: &AppHandle, id: &str) {
         "feedback" => show_hub(app, Some("feedback")),
         "quit" => hub::quit(app),
         "paste_last" => {
-            if let Ok(Some(t)) = st.db.last_text() {
-                let restore = st.settings.read().restore_clipboard;
-                std::thread::spawn(move || {
-                    std::thread::sleep(Duration::from_millis(250));
-                    let _ = paste::paste(&t, restore);
-                });
-            }
+            let st = st.clone();
+            std::thread::spawn(move || {
+                // Let the tray menu close and focus return to the app first.
+                std::thread::sleep(Duration::from_millis(250));
+                dictation::paste_last(&st);
+            });
         }
         "toggle_bar" => {
             let mut s = st.settings.read().clone();

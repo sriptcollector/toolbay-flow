@@ -39,8 +39,98 @@ struct Session {
     mode: Mode,
     started: Instant,
     ctx: Arc<Mutex<Option<FocusContext>>>,
-    last_tap_up: Option<Instant>,
     stream: Arc<Mutex<StreamState>>,
+    /// When the last recording was handed to processing.
+    processing_since: Instant,
+}
+
+/// A recording kept after a cancel or a failure, so Undo or paste last can
+/// still turn it into text.
+#[derive(Clone)]
+struct Recovery {
+    samples: Vec<f32>,
+    mode: Mode,
+    dur: Duration,
+}
+
+/// Timings learned from the original app (docs/parity/dictation-core.md).
+/// A press shorter than this is a tap; a second press inside it (counted from
+/// the first) locks hands-free, a third one cancels.
+pub const TAP_MS: u64 = 500;
+/// Pressing an unrelated key this soon after push-to-talk starts means the user
+/// was reaching for another shortcut: drop the recording.
+pub const OTHER_KEY_MS: u64 = 1000;
+pub const WARN_AFTER: Duration = Duration::from_secs(19 * 60);
+pub const MAX_RECORDING: Duration = Duration::from_secs(20 * 60);
+/// No samples at all from the microphone after this long: the device is dead.
+pub const NO_AUDIO_AFTER: Duration = Duration::from_secs(5);
+
+/// What a hotkey event does, given where the dictation is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Step {
+    Start(Mode),
+    /// Switch the running recording to another mode (lock into hands-free,
+    /// or turn a held dictation into a command).
+    Switch(Mode),
+    Stop,
+    /// Esc or the cancel button: drop it, keep the audio for Undo, say so.
+    Cancel,
+    /// Quick double or triple press: drop it without a message.
+    QuietCancel,
+    /// A tap: keep listening a moment for the second tap, then drop it.
+    AwaitSecondTap,
+    /// Drop a recording that was never meant (another shortcut).
+    Discard,
+    Busy,
+    CommandOff,
+    PasteLast,
+    CopyLast,
+    Transform(usize),
+    Nothing,
+}
+
+/// The hotkey rules, kept free of side effects so they can be tested.
+/// `phase` is "idle", "recording" or "processing"; `elapsed` counts from the
+/// first press of the current recording.
+pub fn decide(ev: &HotkeyEvent, phase: &str, mode: Mode, elapsed: Duration, command_enabled: bool) -> Step {
+    let quick = elapsed < Duration::from_millis(TAP_MS);
+    let (idle, rec, busy) = (phase == "idle", phase == "recording", phase == "processing");
+    match ev {
+        HotkeyEvent::Pressed(a) => match a {
+            Action::Command if !command_enabled => Step::CommandOff,
+            Action::PushToTalk | Action::HandsFree | Action::Command if busy => Step::Busy,
+            Action::PushToTalk if idle => Step::Start(Mode::Ptt),
+            Action::PushToTalk if rec => match mode {
+                Mode::Ptt if quick => Step::Switch(Mode::HandsFree),
+                Mode::HandsFree if quick => Step::QuietCancel,
+                Mode::HandsFree => Step::Stop,
+                _ => Step::Nothing,
+            },
+            Action::HandsFree if idle => Step::Start(Mode::HandsFree),
+            Action::HandsFree if rec => match mode {
+                Mode::HandsFree if quick => Step::QuietCancel,
+                Mode::HandsFree => Step::Stop,
+                _ => Step::Switch(Mode::HandsFree),
+            },
+            Action::Command if idle => Step::Start(Mode::Command),
+            Action::Command if rec && mode == Mode::Ptt => Step::Switch(Mode::Command),
+            Action::Dismiss if rec || busy => Step::Cancel,
+            Action::CopyLast => Step::CopyLast,
+            Action::Transform1 if idle => Step::Transform(0),
+            Action::Transform2 if idle => Step::Transform(1),
+            Action::Transform3 if idle => Step::Transform(2),
+            _ => Step::Nothing,
+        },
+        HotkeyEvent::Released(a) => match (a, mode) {
+            (Action::PushToTalk, Mode::Ptt) if rec && quick => Step::AwaitSecondTap,
+            (Action::PushToTalk, Mode::Ptt) if rec => Step::Stop,
+            (Action::PushToTalk | Action::Command, Mode::Command) if rec => Step::Stop,
+            _ => Step::Nothing,
+        },
+        HotkeyEvent::AllReleased(Action::PasteLast) => Step::PasteLast,
+        HotkeyEvent::Other if rec && mode == Mode::Ptt && elapsed < Duration::from_millis(OTHER_KEY_MS) => Step::Discard,
+        _ => Step::Nothing,
+    }
 }
 
 pub struct State {
@@ -60,6 +150,10 @@ pub struct State {
     pub mic_test: AtomicBool,
     pub last_learned: Mutex<Vec<i64>>,
     last_activity: Mutex<Instant>,
+    recovery: Mutex<Option<Recovery>>,
+    in_flight: Mutex<Option<Recovery>>,
+    /// (times shown, last shown) for the "command mode is off" hint.
+    command_off_hint: Mutex<(u32, Option<Instant>)>,
 }
 
 #[derive(Clone, Serialize)]
@@ -67,6 +161,10 @@ pub struct BarState {
     pub phase: &'static str, // idle | recording | processing | done | error | notice
     pub mode: Option<Mode>,
     pub message: Option<String>,
+    /// Optional button on the message: (label, bar action id).
+    pub action: Option<(&'static str, &'static str)>,
+    /// How long the message stays, in ms (the bar picks when absent).
+    pub ms: Option<u32>,
 }
 
 pub type St = Arc<State>;
@@ -99,19 +197,30 @@ impl State {
                 mode: Mode::Ptt,
                 started: Instant::now(),
                 ctx: Arc::new(Mutex::new(None)),
-                last_tap_up: None,
                 stream: Arc::new(Mutex::new(StreamState::default())),
+                processing_since: Instant::now(),
             }),
             hk,
             generation: AtomicU64::new(0),
             mic_test: AtomicBool::new(false),
             last_learned: Mutex::new(vec![]),
             last_activity: Mutex::new(Instant::now()),
+            recovery: Mutex::new(None),
+            in_flight: Mutex::new(None),
+            command_off_hint: Mutex::new((0, None)),
         }))
     }
 
     pub fn bar(&self, phase: &'static str, mode: Option<Mode>, message: Option<String>) {
-        let _ = self.app.emit("bar-state", BarState { phase, mode, message });
+        let _ = self.app.emit("bar-state", BarState { phase, mode, message, action: None, ms: None });
+    }
+
+    /// A message above the bar with one button.
+    pub fn notice_with(&self, msg: impl Into<String>, label: &'static str, action: &'static str, ms: u32) {
+        let _ = self.app.emit(
+            "bar-state",
+            BarState { phase: "notice", mode: None, message: Some(msg.into()), action: Some((label, action)), ms: Some(ms) },
+        );
     }
 
     pub fn notice(&self, msg: impl Into<String>) {
@@ -286,75 +395,139 @@ fn on_hotkey(st: &St, ev: HotkeyEvent) {
     if !matches!(ev, HotkeyEvent::Prefix) {
         log::info!("hotkey event: {ev:?}");
     }
-    let (phase, mode, elapsed, last_tap) = {
+    let (phase, mode, elapsed, started, busy_for) = {
         let s = st.session.lock();
-        (s.phase, s.mode, s.started.elapsed(), s.last_tap_up)
+        let name = match s.phase {
+            Phase::Idle => "idle",
+            Phase::Recording => "recording",
+            Phase::Processing => "processing",
+        };
+        (name, s.mode, s.started.elapsed(), s.started, s.processing_since.elapsed())
     };
-    match ev {
+    match &ev {
         HotkeyEvent::Recording { keys, done } => {
             let _ = st.app.emit("shortcut-recorded", serde_json::json!({ "keys": keys, "done": done }));
-            if done {
+            if *done {
                 st.hk.recording.store(false, Ordering::Relaxed);
             }
+            return;
         }
         HotkeyEvent::Prefix => {
-            if phase == Phase::Idle && !st.mic_test.load(Ordering::Relaxed) {
+            if phase == "idle" && !st.mic_test.load(Ordering::Relaxed) {
                 let dev = st.settings.read().microphone.clone();
                 let _ = st.rec.lock().warm(dev);
             }
+            return;
         }
-        HotkeyEvent::Pressed(a) => match (a, phase) {
-            (Action::PushToTalk, Phase::Idle) => {
-                if last_tap.map(|t| t.elapsed() < Duration::from_millis(450)).unwrap_or(false) {
-                    start(st, Mode::HandsFree);
-                } else {
-                    start(st, Mode::Ptt);
-                }
-            }
-            (Action::PushToTalk, Phase::Recording) if mode == Mode::HandsFree && elapsed > Duration::from_millis(400) => stop(st),
-            (Action::HandsFree, Phase::Idle) => start(st, Mode::HandsFree),
-            (Action::HandsFree, Phase::Recording) => {
-                if mode == Mode::Ptt {
-                    set_mode(st, Mode::HandsFree);
-                } else {
-                    stop(st);
-                }
-            }
-            (Action::Command, Phase::Idle) if st.settings.read().command_mode => start(st, Mode::Command),
-            (Action::Command, Phase::Recording) if mode == Mode::Ptt && st.settings.read().command_mode => set_mode(st, Mode::Command),
-            (Action::Dismiss, Phase::Recording) | (Action::Dismiss, Phase::Processing) => cancel(st),
-            (Action::PasteLast, _) => {
-                if let Ok(Some(t)) = st.db.last_text() {
-                    std::thread::sleep(Duration::from_millis(120));
-                    let restore = st.settings.read().restore_clipboard;
-                    let _ = paste::paste(&t, restore);
-                }
-            }
-            (Action::CopyLast, _) => {
-                if let Ok(Some(t)) = st.db.last_text() {
-                    let _ = paste::copy(&t);
-                    st.notice("Copied last dictation");
-                }
-            }
-            (Action::Transform1, Phase::Idle) => transform(st, 0),
-            (Action::Transform2, Phase::Idle) => transform(st, 1),
-            (Action::Transform3, Phase::Idle) => transform(st, 2),
-            _ => {}
-        },
-        HotkeyEvent::Released(a) => match (a, phase, mode) {
-            (Action::PushToTalk, Phase::Recording, Mode::Ptt) => {
-                if elapsed < Duration::from_millis(300) {
-                    // A tap, not a hold: the first half of a double-tap.
-                    discard(st, false);
-                    st.session.lock().last_tap_up = Some(Instant::now());
-                } else {
-                    stop(st);
-                }
-            }
-            (Action::PushToTalk, Phase::Recording, Mode::Command) | (Action::Command, Phase::Recording, Mode::Command) => stop(st),
-            _ => {}
-        },
+        _ => {}
     }
+    let command_enabled = st.settings.read().command_mode;
+    match decide(&ev, phase, mode, elapsed, command_enabled) {
+        Step::Start(m) => start(st, m),
+        Step::Switch(m) => set_mode(st, m),
+        Step::Stop => stop(st),
+        Step::Cancel => cancel(st),
+        Step::QuietCancel => {
+            cancel_keep(st, true);
+        }
+        Step::Discard => {
+            st.generation.fetch_add(1, Ordering::SeqCst);
+            discard(st, false);
+        }
+        Step::AwaitSecondTap => {
+            // Keep the mic open: a second press within TAP_MS of the first locks
+            // hands-free on this same recording. Otherwise it was only a tap.
+            let st = st.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(TAP_MS));
+                let still = {
+                    let s = st.session.lock();
+                    s.phase == Phase::Recording && s.mode == Mode::Ptt && s.started == started
+                };
+                if still {
+                    st.generation.fetch_add(1, Ordering::SeqCst);
+                    discard(&st, false);
+                }
+            });
+        }
+        Step::Busy => {
+            // A press right as processing starts is the tail of the stop chord.
+            if busy_for > Duration::from_millis(TAP_MS) {
+                st.notice_with("Still working on your last dictation", "Cancel", "cancel", 6000);
+            }
+        }
+        Step::CommandOff => {
+            let mut h = st.command_off_hint.lock();
+            let due = h.1.map(|t| t.elapsed() > Duration::from_secs(24 * 3600)).unwrap_or(true);
+            if h.0 < 3 && due {
+                *h = (h.0 + 1, Some(Instant::now()));
+                drop(h);
+                st.notice_with("Command mode is turned off", "Settings", "open_settings", 6000);
+            }
+        }
+        Step::PasteLast => paste_last(st),
+        Step::CopyLast => {
+            if let Ok(Some(t)) = st.db.last_text() {
+                let _ = paste::copy(&t);
+                st.notice("Copied last dictation");
+            }
+        }
+        Step::Transform(i) => transform(st, i),
+        Step::Nothing => {}
+    }
+}
+
+/// Paste the last dictation again. If the last one was cancelled or failed,
+/// turn its recording into text first (the original app does the same).
+pub fn paste_last(st: &St) {
+    if st.session.lock().phase != Phase::Idle {
+        // The dictation in progress pastes itself when it finishes.
+        return;
+    }
+    if st.recovery.lock().is_some() {
+        recover(st);
+        return;
+    }
+    if let Ok(Some(t)) = st.db.last_text() {
+        let restore = st.settings.read().restore_clipboard;
+        std::thread::spawn(move || {
+            // Called once the shortcut's keys are up; a short beat lets the OS settle.
+            std::thread::sleep(Duration::from_millis(25));
+            let _ = paste::paste(&t, restore);
+        });
+    }
+}
+
+/// Undo a cancel: process the kept recording and paste it where the cursor is now.
+pub fn recover(st: &St) {
+    let Some(r) = st.recovery.lock().take() else { return };
+    {
+        let mut ss = st.session.lock();
+        if ss.phase != Phase::Idle {
+            drop(ss);
+            *st.recovery.lock() = Some(r);
+            return;
+        }
+        ss.phase = Phase::Processing;
+        ss.mode = r.mode;
+        ss.processing_since = Instant::now();
+    }
+    *st.in_flight.lock() = Some(r.clone());
+    st.hk.dismiss_armed.store(true, Ordering::Relaxed);
+    st.bar("processing", Some(r.mode), None);
+    let gen = st.generation.load(Ordering::SeqCst);
+    let st2 = st.clone();
+    tauri::async_runtime::spawn(async move {
+        let released = Instant::now();
+        let res = async {
+            let raw = transcribe_with(&st2, &r.samples, "").await?;
+            let read_text = st2.settings.read().context_awareness;
+            let ctx = tokio::task::spawn_blocking(move || context::capture(read_text)).await.unwrap_or_default();
+            process(&st2, raw, r.samples.clone(), r.mode, ctx, r.dur, gen, released).await
+        }
+        .await;
+        finish(&st2, gen, r.mode, res);
+    });
 }
 
 fn set_mode(st: &St, mode: Mode) {
@@ -400,7 +573,6 @@ pub fn start(st: &St, mode: Mode) {
         ss.mode = mode;
         ss.started = Instant::now();
         ss.ctx = ctx_slot;
-        ss.last_tap_up = None;
         ss.stream = stream.clone();
     }
     st.hk.dismiss_armed.store(true, Ordering::Relaxed);
@@ -418,12 +590,37 @@ pub fn start(st: &St, mode: Mode) {
         }
         stream_loop(st2, stream, gen).await;
     });
-    // Safety stop for forgotten hands-free sessions.
+    let started = st.session.lock().started;
+    let still_recording = move |st: &St| {
+        let s = st.session.lock();
+        st.generation.load(Ordering::SeqCst) == gen && s.phase == Phase::Recording && s.started == started
+    };
+    // A microphone that delivers nothing at all is broken or taken: say so
+    // instead of recording silence.
+    let st4 = st.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(NO_AUDIO_AFTER);
+        if still_recording(&st4) && st4.rec.lock().snapshot().is_empty() {
+            st4.generation.fetch_add(1, Ordering::SeqCst);
+            discard(&st4, false);
+            if st4.settings.read().sounds {
+                sounds::play(Sound::Error);
+            }
+            st4.bar("error", None, Some("No sound is coming from your microphone. Pick another one in Settings.".into()));
+        }
+    });
+    // Safety stop for forgotten hands-free sessions, with a warning a minute before.
     let st3 = st.clone();
     std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_secs(20 * 60));
-        if st3.generation.load(Ordering::SeqCst) == gen && st3.session.lock().phase == Phase::Recording {
+        std::thread::sleep(WARN_AFTER);
+        if !still_recording(&st3) {
+            return;
+        }
+        st3.notice("Recording stops in 1 minute");
+        std::thread::sleep(MAX_RECORDING - WARN_AFTER);
+        if still_recording(&st3) {
             stop(&st3);
+            st3.notice("Stopped at 20 minutes, the most one dictation can run");
         }
     });
 }
@@ -473,19 +670,47 @@ async fn stream_loop(st: St, stream: Arc<Mutex<StreamState>>, gen: u64) {
     }
 }
 
-fn discard(st: &St, with_sound: bool) {
-    let _ = st.rec.lock().stop();
+/// Ends the recording without processing it; returns what was recorded.
+fn discard(st: &St, with_sound: bool) -> Vec<f32> {
+    let samples = st.rec.lock().stop();
     st.session.lock().phase = Phase::Idle;
     st.hk.dismiss_armed.store(false, Ordering::Relaxed);
     if with_sound && st.settings.read().sounds {
         sounds::play(Sound::Cancel);
     }
     st.bar("idle", None, None);
+    samples
 }
 
-pub fn cancel(st: &St) {
+/// Drops the recording (or the processing in flight) and keeps it for Undo.
+/// Returns true when there was speech worth keeping.
+fn cancel_keep(st: &St, with_sound: bool) -> bool {
+    let (phase, mode, dur) = {
+        let s = st.session.lock();
+        (s.phase, s.mode, s.started.elapsed())
+    };
     st.generation.fetch_add(1, Ordering::SeqCst);
-    discard(st, true);
+    let kept = match phase {
+        Phase::Recording => {
+            let samples = discard(st, with_sound);
+            Some(Recovery { samples, mode, dur })
+        }
+        Phase::Processing => {
+            discard(st, with_sound);
+            st.in_flight.lock().take()
+        }
+        Phase::Idle => return false,
+    };
+    let useful = kept.as_ref().map(|r| audio::has_speech(&r.samples)).unwrap_or(false);
+    *st.recovery.lock() = if useful { kept } else { None };
+    useful
+}
+
+/// Esc or the bar's cancel button.
+pub fn cancel(st: &St) {
+    if cancel_keep(st, true) {
+        st.notice_with("Dictation cancelled", "Undo", "undo_cancel", 3000);
+    }
 }
 
 pub fn stop(st: &St) {
@@ -497,6 +722,7 @@ pub fn stop(st: &St) {
     let (mode, ctx_slot, dur, stream) = {
         let mut ss = st.session.lock();
         ss.phase = Phase::Processing;
+        ss.processing_since = Instant::now();
         (ss.mode, ss.ctx.clone(), ss.started.elapsed(), ss.stream.clone())
     };
     // Developer hook for automated end-to-end tests: replace the microphone
@@ -511,6 +737,7 @@ pub fn stop(st: &St) {
         sounds::play(Sound::Stop);
     }
     st.bar("processing", Some(mode), None);
+    *st.in_flight.lock() = Some(Recovery { samples: samples.clone(), mode, dur });
     let gen = st.generation.load(Ordering::SeqCst);
     let st2 = st.clone();
     tauri::async_runtime::spawn(async move {
@@ -544,24 +771,37 @@ pub fn stop(st: &St) {
             process(&st2, raw, samples, mode, ctx.unwrap_or_default(), dur, gen, released).await
         }
         .await;
-        let current = st2.generation.load(Ordering::SeqCst) == gen;
-        st2.session.lock().phase = Phase::Idle;
-        st2.hk.dismiss_armed.store(false, Ordering::Relaxed);
-        if !current {
-            return;
-        }
-        match res {
-            Ok(Some(msg)) => st2.bar("done", Some(mode), Some(msg)),
-            Ok(None) => st2.bar("idle", None, None),
-            Err(e) => {
-                log::error!("dictation failed: {e:#}");
-                if st2.settings.read().sounds {
-                    sounds::play(Sound::Error);
-                }
-                st2.bar("error", None, Some(friendly_err(&e)));
-            }
-        }
+        finish(&st2, gen, mode, res);
     });
+}
+
+/// Shared ending for a processed recording (normal stop or Undo).
+fn finish(st: &St, gen: u64, mode: Mode, res: Result<Option<String>>) {
+    if st.generation.load(Ordering::SeqCst) != gen {
+        // Cancelled meanwhile; the cancel already reset the session.
+        return;
+    }
+    st.session.lock().phase = Phase::Idle;
+    st.hk.dismiss_armed.store(false, Ordering::Relaxed);
+    let flight = st.in_flight.lock().take();
+    match res {
+        Ok(Some(msg)) => {
+            *st.recovery.lock() = None;
+            st.bar("done", Some(mode), Some(msg));
+            // The tray shows a preview of the last dictation.
+            crate::refresh_tray(&st.app);
+        }
+        Ok(None) => st.bar("idle", None, None),
+        Err(e) => {
+            log::error!("dictation failed: {e:#}");
+            // Keep the audio: paste last tries it again.
+            *st.recovery.lock() = flight;
+            if st.settings.read().sounds {
+                sounds::play(Sound::Error);
+            }
+            st.bar("error", None, Some(friendly_err(&e)));
+        }
+    }
 }
 
 /// Error text for people, not developers: what happened and what to do.
@@ -792,7 +1032,10 @@ async fn process(st: &St, raw: String, samples: Vec<f32>, mode: Mode, ctx: Focus
     }
     let restore = st.settings.read().restore_clipboard;
     let t2 = text.clone();
-    tokio::task::spawn_blocking(move || paste::paste(&t2, restore)).await??;
+    if !(press_enter && text.trim().is_empty()) {
+        // "Press enter" said on its own: just press Enter.
+        tokio::task::spawn_blocking(move || paste::paste(&t2, restore)).await??;
+    }
     if press_enter {
         tokio::time::sleep(Duration::from_millis(120)).await;
         let _ = tokio::task::spawn_blocking(paste::press_enter).await;
@@ -1052,6 +1295,75 @@ mod tests {
         assert_eq!(join_with_context("Hello.", "Done. ", false), "Hello.");
         assert_eq!(join_with_context("Hello.", "", false), "Hello.");
         assert_eq!(join_with_context("Hello.", "end.", true), " Hello.");
+    }
+
+    // Parity with the original's hotkey rules (docs/parity/dictation-core.md).
+    fn ms(n: u64) -> Duration {
+        Duration::from_millis(n)
+    }
+    fn down(a: Action, phase: &str, mode: Mode, t: u64) -> Step {
+        decide(&HotkeyEvent::Pressed(a), phase, mode, ms(t), true)
+    }
+    fn up(a: Action, phase: &str, mode: Mode, t: u64) -> Step {
+        decide(&HotkeyEvent::Released(a), phase, mode, ms(t), true)
+    }
+
+    #[test]
+    fn hold_tap_double_and_triple_tap() {
+        use Action::PushToTalk as P;
+        assert_eq!(down(P, "idle", Mode::Ptt, 0), Step::Start(Mode::Ptt));
+        // Held past 500 ms: release stops and transcribes.
+        assert_eq!(up(P, "recording", Mode::Ptt, 500), Step::Stop);
+        // Shorter: a tap. Keep listening for a second tap.
+        assert_eq!(up(P, "recording", Mode::Ptt, 499), Step::AwaitSecondTap);
+        // Second press within 500 ms of the first locks hands-free, same recording.
+        assert_eq!(down(P, "recording", Mode::Ptt, 300), Step::Switch(Mode::HandsFree));
+        assert_eq!(down(P, "recording", Mode::Ptt, 500), Step::Nothing);
+        // Third quick press cancels; a later press stops hands-free.
+        assert_eq!(down(P, "recording", Mode::HandsFree, 450), Step::QuietCancel);
+        assert_eq!(down(P, "recording", Mode::HandsFree, 5000), Step::Stop);
+        // Releasing while locked does nothing.
+        assert_eq!(up(P, "recording", Mode::HandsFree, 5000), Step::Nothing);
+    }
+
+    #[test]
+    fn hands_free_chord() {
+        use Action::HandsFree as H;
+        assert_eq!(down(H, "idle", Mode::Ptt, 0), Step::Start(Mode::HandsFree));
+        assert_eq!(down(H, "recording", Mode::Ptt, 2000), Step::Switch(Mode::HandsFree));
+        assert_eq!(down(H, "recording", Mode::Command, 2000), Step::Switch(Mode::HandsFree));
+        assert_eq!(down(H, "recording", Mode::HandsFree, 200), Step::QuietCancel);
+        assert_eq!(down(H, "recording", Mode::HandsFree, 3000), Step::Stop);
+    }
+
+    #[test]
+    fn command_mode() {
+        use Action::Command as C;
+        assert_eq!(down(C, "idle", Mode::Ptt, 0), Step::Start(Mode::Command));
+        assert_eq!(down(C, "recording", Mode::Ptt, 800), Step::Switch(Mode::Command));
+        // Locked hands-free stays dictation.
+        assert_eq!(down(C, "recording", Mode::HandsFree, 800), Step::Nothing);
+        // Release stops at once, no tap window.
+        assert_eq!(up(C, "recording", Mode::Command, 100), Step::Stop);
+        assert_eq!(decide(&HotkeyEvent::Pressed(C), "idle", Mode::Ptt, ms(0), false), Step::CommandOff);
+    }
+
+    #[test]
+    fn busy_cancel_paste_and_other_keys() {
+        for a in [Action::PushToTalk, Action::HandsFree, Action::Command] {
+            assert_eq!(down(a, "processing", Mode::Ptt, 0), Step::Busy);
+        }
+        assert_eq!(down(Action::Dismiss, "recording", Mode::Ptt, 0), Step::Cancel);
+        assert_eq!(down(Action::Dismiss, "processing", Mode::Ptt, 0), Step::Cancel);
+        assert_eq!(down(Action::Dismiss, "idle", Mode::Ptt, 0), Step::Nothing);
+        // Paste last waits for every key to be up.
+        assert_eq!(down(Action::PasteLast, "idle", Mode::Ptt, 0), Step::Nothing);
+        assert_eq!(decide(&HotkeyEvent::AllReleased(Action::PasteLast), "idle", Mode::Ptt, ms(0), true), Step::PasteLast);
+        // Another shortcut within 1 s of push-to-talk drops the recording.
+        let other = |t, m| decide(&HotkeyEvent::Other, "recording", m, ms(t), true);
+        assert_eq!(other(900, Mode::Ptt), Step::Discard);
+        assert_eq!(other(1000, Mode::Ptt), Step::Nothing);
+        assert_eq!(other(100, Mode::HandsFree), Step::Nothing);
     }
 }
 

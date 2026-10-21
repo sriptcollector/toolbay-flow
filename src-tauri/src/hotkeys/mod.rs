@@ -21,6 +21,12 @@ pub enum HotkeyEvent {
     Recording { keys: Vec<u32>, done: bool },
     /// The keys held are the start of a dictation shortcut: get the mic ready.
     Prefix,
+    /// Every key of the action's shortcut is up again (paste last fires here, so
+    /// the user's modifiers are not still held when Flow presses Ctrl+V).
+    AllReleased(Action),
+    /// A key that belongs to no shortcut went down while push-to-talk was held:
+    /// the user is reaching for another shortcut (Ctrl+Win+D and the like).
+    Other,
 }
 
 pub struct Shared {
@@ -41,6 +47,7 @@ pub type Sink = Arc<dyn Fn(HotkeyEvent) + Send + Sync>;
 pub struct Matcher {
     pub down: BTreeSet<u32>,
     active: Vec<Action>,
+    await_all_up: Vec<Action>,
     rec_max: BTreeSet<u32>,
     rec_was: bool,
     shared: Arc<Shared>,
@@ -49,7 +56,7 @@ pub struct Matcher {
 
 impl Matcher {
     pub fn new(shared: Arc<Shared>, sink: Sink) -> Self {
-        Matcher { down: BTreeSet::new(), active: vec![], rec_max: BTreeSet::new(), rec_was: false, shared, sink }
+        Matcher { down: BTreeSet::new(), active: vec![], await_all_up: vec![], rec_max: BTreeSet::new(), rec_was: false, shared, sink }
     }
 
     /// Returns true if the key event should be swallowed (not passed to the app).
@@ -108,6 +115,21 @@ impl Matcher {
         for a in released {
             (self.sink)(HotkeyEvent::Released(a));
         }
+        if !is_down && !self.await_all_up.is_empty() {
+            let down = &self.down;
+            let mut done = vec![];
+            self.await_all_up.retain(|a| {
+                let keys = shortcuts.iter().find(|s| &s.action == a).map(|s| s.keys.clone()).unwrap_or_default();
+                let any_held = keys.iter().any(|k| holds(down, *k));
+                if !any_held {
+                    done.push(a.clone());
+                }
+                any_held
+            });
+            for a in done {
+                (self.sink)(HotkeyEvent::AllReleased(a));
+            }
+        }
 
         if is_down && self.active.is_empty() {
             let dictation = [Action::PushToTalk, Action::HandsFree, Action::Command];
@@ -125,10 +147,16 @@ impl Matcher {
                 }
                 if !self.active.contains(&s.action) {
                     self.active.push(s.action.clone());
+                    if s.action == Action::PasteLast && !self.await_all_up.contains(&s.action) {
+                        self.await_all_up.push(s.action.clone());
+                    }
                     (self.sink)(HotkeyEvent::Pressed(s.action.clone()));
                 }
                 // Swallow the non-modifier key that completed a chord (Space, Z, 1...).
                 return !is_modifier(code);
+            }
+            if !is_modifier(code) && self.active.contains(&Action::PushToTalk) {
+                (self.sink)(HotkeyEvent::Other);
             }
         }
         false
@@ -357,6 +385,31 @@ mod tests {
         let mut m = Matcher::new(shared, Arc::new(move |e| l2.lock().push(format!("{e:?}"))));
         m.key(0x11, true); // Ctrl: start of Ctrl+Win
         assert_eq!(log.lock()[0], "Prefix");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn paste_last_waits_for_all_keys_up() {
+        let (mut m, log) = setup();
+        m.key(0x10, true); // Shift
+        m.key(0x12, true); // Alt
+        m.key(0x5A, true); // Z
+        m.key(0x5A, false);
+        assert_eq!(log.lock().join(","), "Pressed(PasteLast),Released(PasteLast)");
+        m.key(0x12, false);
+        assert!(!log.lock().join(",").contains("AllReleased"));
+        m.key(0x10, false);
+        assert_eq!(log.lock().last().unwrap(), "AllReleased(PasteLast)");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn other_key_during_ptt() {
+        let (mut m, log) = setup();
+        m.key(0x11, true);
+        m.key(0x5B, true);
+        assert!(!m.key(0x44, true)); // D passes through (Win+Ctrl+D)
+        assert_eq!(log.lock().join(","), "Pressed(PushToTalk),Other");
     }
 
     #[cfg(windows)]

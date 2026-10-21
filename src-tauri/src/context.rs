@@ -25,7 +25,48 @@ pub fn capture(read_text: bool) -> FocusContext {
     std::thread::spawn(move || {
         let _ = tx.send(platform::capture(read_text));
     });
-    rx.recv_timeout(Duration::from_millis(700)).unwrap_or_else(|_| platform::window_only())
+    let mut c = rx.recv_timeout(Duration::from_millis(700)).unwrap_or_else(|_| platform::window_only());
+    c.before = limit_before(&c.before);
+    c.after = limit_after(&c.after);
+    c
+}
+
+/// Text kept on each side of the cursor (same as the original app).
+pub const AROUND_CURSOR: usize = 500;
+
+/// The last AROUND_CURSOR characters before the cursor, starting on a whole word.
+pub fn limit_before(s: &str) -> String {
+    let rev: String = s.chars().rev().collect();
+    limit_after(&rev).chars().rev().collect::<String>().trim_start().to_string()
+}
+
+/// The first AROUND_CURSOR characters after the cursor, ending on a whole word.
+pub fn limit_after(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() <= AROUND_CURSOR {
+        return s.trim_end().to_string();
+    }
+    // Look one character further so a word that ends exactly at the limit stays.
+    let head = &chars[..=AROUND_CURSOR];
+    match head.iter().rposition(|c| c.is_whitespace()) {
+        Some(i) => head[..i].iter().collect::<String>().trim_end().to_string(),
+        None => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn around_cursor_limits() {
+        let long = "word ".repeat(200); // 1000 chars
+        let a = limit_after(&long);
+        assert!(a.chars().count() <= AROUND_CURSOR && a.ends_with("word"));
+        let b = limit_before(&format!("{long}end"));
+        assert!(b.chars().count() <= AROUND_CURSOR && b.starts_with("word") && b.ends_with("end"));
+        assert_eq!(limit_after("short text  "), "short text");
+        assert_eq!(limit_after(&"x".repeat(600)), "");
+    }
 }
 
 /// Full text of the focused field (for learning from the user's edits).
@@ -114,8 +155,8 @@ mod platform {
                 }
                 if let Some(a) = tp.get_selection().ok().and_then(|v| v.into_iter().next()) {
                     let _ = a.move_endpoint_by_range(Ep::Start, &sel, Ep::End);
-                    let _ = a.move_endpoint_by_unit(Ep::End, TextUnit::Character, 300);
-                    c.after = a.get_text(600).unwrap_or_default();
+                    let _ = a.move_endpoint_by_unit(Ep::End, TextUnit::Character, 600);
+                    c.after = a.get_text(1200).unwrap_or_default();
                 }
                 return c;
             }
@@ -226,7 +267,7 @@ mod platform {
                     let start = (range.location as usize).min(chars.len());
                     let end = ((range.location + range.length) as usize).min(chars.len());
                     let b = String::from_utf16_lossy(&chars[start.saturating_sub(600)..start]);
-                    let a = String::from_utf16_lossy(&chars[end..(end + 300).min(chars.len())]);
+                    let a = String::from_utf16_lossy(&chars[end..(end + 600).min(chars.len())]);
                     c.before = b;
                     c.after = a;
                 }

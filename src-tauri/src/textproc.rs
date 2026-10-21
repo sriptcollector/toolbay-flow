@@ -280,9 +280,18 @@ pub fn vocabulary_prompt(dict: &[DictEntry], max_chars: usize) -> String {
 /// Detects a trailing "press enter" / "hit enter" voice command and returns the
 /// text without it.
 pub fn strip_press_enter(raw: &str) -> Option<String> {
-    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)(^|[\s,.;:!?-]+)(press|hit) (enter|return)[\s.!?]*$").unwrap());
-    let m = RE.find(raw)?;
-    Some(raw[..m.start()].trim_end().to_string())
+    // Only "press enter", only at the very end (the original's rule).
+    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)(^|[\s,.;:!?-]+)press enter[\s.!?,;:-]*$").unwrap());
+    let caps = RE.captures(raw)?;
+    let (whole, sep) = (caps.get(0)?, caps.get(1)?);
+    let mut out = raw[..whole.start()].trim_end().to_string();
+    // Keep the sentence's own ending ("Thanks. Press enter" -> "Thanks.").
+    if let Some(p) = sep.as_str().chars().find(|c| ".!?;".contains(*c)) {
+        if !out.is_empty() {
+            out.push(p);
+        }
+    }
+    Some(out)
 }
 
 /// Levenshtein distance on chars (for auto-learning corrected words).
@@ -391,7 +400,10 @@ mod tests {
     #[test]
     fn press_enter() {
         assert_eq!(strip_press_enter("see you at five, press enter.").as_deref(), Some("see you at five"));
-        assert_eq!(strip_press_enter("Hit Enter"), Some(String::new()));
+        assert_eq!(strip_press_enter("Press Enter"), Some(String::new()));
+        assert_eq!(strip_press_enter("Thanks. Press enter!"), Some("Thanks.".into()));
+        assert!(strip_press_enter("hit enter").is_none());
+        assert!(strip_press_enter("press enter and then wait").is_none());
         assert!(strip_press_enter("I pressed enter yesterday").is_none());
     }
 
