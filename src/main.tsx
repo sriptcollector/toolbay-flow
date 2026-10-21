@@ -12,18 +12,15 @@ async function boot() {
   }
   const root = ReactDOM.createRoot(document.getElementById("root") as HTMLElement);
   if (isBar) {
+    await import("@fontsource-variable/figtree");
     const { default: Bar } = await import("./bar/Bar");
     root.render(<Bar />);
   } else {
-    await Promise.all([
-      import("@fontsource/space-grotesk/400.css"),
-      import("@fontsource/space-grotesk/500.css"),
-      import("@fontsource/space-grotesk/600.css"),
-      import("@fontsource/space-grotesk/700.css"),
-      import("@fontsource/space-mono/400.css"),
-    ]);
-    await import("./theme/toolbay-theme.css");
+    await Promise.all([import("@fontsource-variable/figtree"), import("@fontsource/eb-garamond/400.css")]);
+    await import("./theme/flow-theme.css");
+    await import("./hub/base.css");
     await import("./hub/hub.css");
+    await import("./hub/pages.css");
     const { default: Hub } = await import("./hub/Hub");
     root.render(
       <React.StrictMode>

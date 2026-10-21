@@ -138,3 +138,34 @@ export const Icon = {
   mic: <svg viewBox="0 0 20 20"><path d="M10 3a2.5 2.5 0 0 0-2.5 2.5v4a2.5 2.5 0 0 0 5 0v-4A2.5 2.5 0 0 0 10 3zM5 9.5a5 5 0 0 0 10 0M10 14.5V17" /></svg>,
   check: <svg viewBox="0 0 20 20"><path d="M4.5 10.5l3.5 3.5 7.5-8" /></svg>,
 };
+
+/** A centered dialog over a dimmed window. Esc or a click outside closes it. */
+export function Modal({ title, children, onClose, actions }: { title: string; children: ReactNode; onClose: () => void; actions?: ReactNode }) {
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, [onClose]);
+  return (
+    <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal" role="dialog" aria-label={title}>
+        <h3>{title}</h3>
+        {children}
+        {actions && <div className="modal-actions">{actions}</div>}
+      </div>
+    </div>
+  );
+}
+
+/** Underlined tabs, like the original's page tabs. */
+export function Tabs<T extends string>({ tabs, value, onChange }: { tabs: [T, string][]; value: T; onChange: (v: T) => void }) {
+  return (
+    <div className="tabs" role="tablist">
+      {tabs.map(([id, label]) => (
+        <button key={id} role="tab" aria-selected={value === id} className={value === id ? "on" : ""} onClick={() => onChange(id)}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}

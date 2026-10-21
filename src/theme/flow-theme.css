@@ -1,0 +1,83 @@
+/* Toolbay Flow's look: matches the original app's warm-paper design (light by default, dark on
+   request). Values are our own measurements of the original's public screenshots and tokens;
+   fonts are the free Figtree (UI) and EB Garamond (display headings), bundled via @fontsource. */
+:root {
+  /* sand: warm off-white neutrals */
+  --sand-50: #fcfcfb;
+  --sand-100: #faf9f7;
+  --sand-500: #f5f4f0;
+  --sand-600: #eeebe3;
+  --sand-700: #c5c0b3;
+  --sand-900: #736e62;
+  /* vast: greys */
+  --vast-50: #e9e8e1;
+  --vast-200: #c8c8c2;
+  --vast-600: #71716e;
+  --vast-700: #5b5b59;
+  --vast-800: #464544;
+  --vast-900: #30302f;
+  --vast-950: #1a1a1a;
+  /* accents */
+  --lavender: #f0d7ff;
+  --lavender-2: #d2ace9;
+  --plum: #7232a6;
+  --teal-900: #1b5c5c;
+  --teal-700: #2f8c84;
+  --teal-500: #6cc2b3;
+  --teal-200: #a9dcd2;
+  --teal-50: #d4eeed;
+  --orange: #ffa946;
+  --success: #4fbf78;
+  --warning: #ffd467;
+  --destructive: #ee6a6a;
+
+  color-scheme: light;
+  --bg: var(--sand-500); /* window + sidebar */
+  --surface: var(--sand-50); /* the content panel */
+  --card: var(--sand-50);
+  --card-2: var(--sand-500); /* inset cards (stats, insights) */
+  --fill: var(--sand-600); /* hover, active nav */
+  --ink: var(--vast-950);
+  --ink-2: #2b2b2a;
+  --muted: var(--vast-600);
+  --line: var(--sand-600);
+  --line-2: #f1efe9;
+  --line-strong: #dedad0;
+  --accent: var(--vast-950); /* primary buttons are near-black */
+  --accent-ink: var(--plum);
+  --accent-soft: #f6ecfd;
+  --on-primary: #ffffff;
+  --ok: var(--success);
+  --warn: #c99a1c;
+  --danger: var(--destructive);
+  --focus: rgba(26, 26, 26, 0.12);
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.04);
+  --r: 16px;
+  --font: "Figtree Variable", "Figtree", "Segoe UI", system-ui, sans-serif;
+  --display: "EB Garamond", Georgia, "Times New Roman", serif;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  /* legacy names still used by a few components */
+  --tb-premium: var(--plum);
+  --tb-font: var(--font);
+  --tb-mono: var(--mono);
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f0f0f;
+  --surface: #161616;
+  --card: #1b1b1a;
+  --card-2: #1f1f1e;
+  --fill: #262624;
+  --ink: #deddd7;
+  --ink-2: #cfcec8;
+  --muted: #9a9993;
+  --line: #2a2a28;
+  --line-2: #222220;
+  --line-strong: #3a3a37;
+  --accent: #deddd7;
+  --accent-ink: var(--lavender-2);
+  --accent-soft: #2c2433;
+  --on-primary: #141414;
+  --focus: rgba(222, 221, 215, 0.16);
+  --shadow-card: none;
+}

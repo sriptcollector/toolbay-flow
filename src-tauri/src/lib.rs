@@ -73,14 +73,19 @@ pub fn ui_ready(app: &AppHandle) {
 }
 
 fn create_hub(app: &AppHandle, visible: bool) -> tauri::Result<()> {
-    let w = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+    // Frameless with Flow's own title bar (sidebar toggle, caption buttons), like the original.
+    let b = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
         .title("Toolbay Flow")
-        .inner_size(1180.0, 780.0)
-        .min_inner_size(900.0, 620.0)
+        .inner_size(1280.0, 848.0)
+        .min_inner_size(1000.0, 680.0)
         .center()
         .visible(false)
-        .background_color(tauri::window::Color(10, 10, 10, 255))
-        .build()?;
+        .background_color(tauri::window::Color(245, 244, 240, 255));
+    #[cfg(windows)]
+    let b = b.decorations(false).shadow(true);
+    #[cfg(target_os = "macos")]
+    let b = b.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true);
+    let w = b.build()?;
     WANT_VISIBLE.store(visible, std::sync::atomic::Ordering::SeqCst);
     // Safety net in case the page never reports in.
     let app2 = app.clone();

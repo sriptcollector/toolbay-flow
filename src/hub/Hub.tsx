@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useState } from "react";
+import { Mic, ChartColumnBig, BookA, Scissors, Type, WandSparkles, NotebookPen, Cpu, Keyboard, Settings as Gear, CircleHelp, PanelLeft, CircleUserRound, Minus, Square, X } from "lucide-react";
 import { api, on } from "../api";
-import { Icon, useSettings } from "./ui";
+import { useSettings } from "./ui";
 import Onboarding from "./Onboarding";
 import Home from "./pages/Home";
 import Insights from "./pages/Insights";
@@ -15,28 +16,77 @@ import SettingsPage from "./pages/Settings";
 
 type PageId = "home" | "insights" | "dictionary" | "snippets" | "style" | "transforms" | "notes" | "models" | "shortcuts" | "settings";
 
+const I = { size: 20, strokeWidth: 1.6 };
 const NAV: [PageId, string, ReactNode][] = [
-  ["home", "Dictation", Icon.home],
-  ["insights", "Insights", Icon.chart],
-  ["dictionary", "Dictionary", Icon.book],
-  ["snippets", "Snippets", Icon.bolt],
-  ["style", "Style", Icon.brush],
-  ["transforms", "Transforms", Icon.wand],
-  ["notes", "Scratchpad", Icon.note],
+  ["home", "Dictation", <Mic {...I} />],
+  ["insights", "Insights", <ChartColumnBig {...I} />],
+  ["dictionary", "Dictionary", <BookA {...I} />],
+  ["snippets", "Snippets", <Scissors {...I} />],
+  ["style", "Style", <Type {...I} />],
+  ["transforms", "Transforms", <WandSparkles {...I} />],
+  ["notes", "Scratchpad", <NotebookPen {...I} />],
 ];
 const NAV2: [PageId, string, ReactNode][] = [
-  ["models", "Models", Icon.chip],
-  ["shortcuts", "Shortcuts", Icon.keyboard],
-  ["settings", "Settings", Icon.gear],
+  ["models", "Models", <Cpu {...I} />],
+  ["shortcuts", "Shortcuts", <Keyboard {...I} />],
+  ["settings", "Settings", <Gear {...I} />],
 ];
+
+/** Applies the Appearance setting (light by default, like the original). */
+export function useTheme(appearance?: string) {
+  useEffect(() => {
+    const apply = () => {
+      const dark = appearance === "dark" || (appearance === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+      document.documentElement.dataset.theme = dark ? "dark" : "light";
+    };
+    apply();
+    const mq = matchMedia("(prefers-color-scheme: dark)");
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, [appearance]);
+}
+
+async function win() {
+  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+  return getCurrentWindow();
+}
+
+export function TitleBar({ children }: { children?: ReactNode }) {
+  const [os, setOs] = useState("");
+  useEffect(() => {
+    api.appInfo().then((i) => setOs(i.os));
+  }, []);
+  return (
+    <header className="titlebar" data-tauri-drag-region>
+      {children}
+      <div className="tb-fill" data-tauri-drag-region />
+      {os === "windows" && (
+        <div className="caption">
+          <button aria-label="Minimize" onClick={() => win().then((w) => w.minimize())}>
+            <Minus />
+          </button>
+          <button aria-label="Maximize" onClick={() => win().then((w) => w.toggleMaximize())}>
+            <Square size={14} />
+          </button>
+          <button aria-label="Close" className="close" onClick={() => win().then((w) => w.close())}>
+            <X />
+          </button>
+        </div>
+      )}
+    </header>
+  );
+}
 
 export default function Hub() {
   const [settings, , reload] = useSettings();
-  const [page, setPage] = useState<PageId>("home");
-  const [version, setVersion] = useState("");
+  // ?page=<id> opens a page directly (used for screenshots and the comparison sheet).
+  const [page, setPage] = useState<PageId>(() => (new URLSearchParams(location.search).get("page") as PageId) || "home");
+  const [collapsed, setCollapsed] = useState(false);
+  const [mac, setMac] = useState(false);
+  useTheme(settings?.appearance);
 
   useEffect(() => {
-    api.appInfo().then((i) => setVersion(i.version));
+    api.appInfo().then((i) => setMac(i.os === "macos"));
     return on<string>("navigate", (p) => setPage(p as PageId));
   }, []);
 
@@ -56,37 +106,37 @@ export default function Hub() {
     settings: SettingsPage,
   }[page];
 
+  const item = ([id, label, icon]: [PageId, string, ReactNode]) => (
+    <button key={id} className={page === id ? "active" : ""} onClick={() => setPage(id)} title={collapsed ? label : undefined}>
+      {icon}
+      <span>{label}</span>
+    </button>
+  );
+
   return (
-    <div className="hub">
+    <div className={`hub ${collapsed ? "collapsed" : ""} ${mac ? "mac" : ""}`}>
+      <TitleBar>
+        <button className="tb-btn" aria-label="Toggle sidebar" onClick={() => setCollapsed(!collapsed)}>
+          <PanelLeft />
+        </button>
+        <button className="tb-btn" aria-label="Toolbay account" onClick={() => setPage("settings")}>
+          <CircleUserRound />
+        </button>
+      </TitleBar>
       <aside className="side">
         <div className="brand">
-          <Logo />
-          <div>
-            <div className="brand-name">Flow</div>
-            <div className="brand-by">by Toolbay</div>
-          </div>
+          <Logo size={28} />
+          <span className="brand-name">Flow</span>
         </div>
-        <nav>
-          {NAV.map(([id, label, icon]) => (
-            <button key={id} className={page === id ? "active" : ""} onClick={() => setPage(id)}>
-              {icon}
-              <span>{label}</span>
-            </button>
-          ))}
-        </nav>
+        <nav>{NAV.map(item)}</nav>
         <div className="side-spacer" />
         <nav>
-          {NAV2.map(([id, label, icon]) => (
-            <button key={id} className={page === id ? "active" : ""} onClick={() => setPage(id)}>
-              {icon}
-              <span>{label}</span>
-            </button>
-          ))}
+          {NAV2.map(item)}
+          <a href="https://github.com/sriptcollector/toolbay-flow#readme" target="_blank" rel="noreferrer" title={collapsed ? "Help" : undefined}>
+            <CircleHelp {...I} />
+            <span>Help</span>
+          </a>
         </nav>
-        <div className="side-foot">
-          <span className="free-pill">Free · Local · Open source</span>
-          <span className="ver">v{version}</span>
-        </div>
       </aside>
       <main className="content">
         <Current key={page} go={(p: string) => setPage(p as PageId)} />
@@ -95,15 +145,16 @@ export default function Hub() {
   );
 }
 
+/** Toolbay Flow's own mark: four rounded voice bars in a soft square. */
 export function Logo({ size = 30 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 32 32" className="logo">
-      <rect width="32" height="32" rx="9" fill="#141414" stroke="#2f2f2f" />
-      <g fill="#fff">
+    <svg width={size} height={size} viewBox="0 0 32 32" className="logo" style={{ stroke: "none" }}>
+      <rect width="32" height="32" rx="9" fill="var(--ink)" />
+      <g fill="var(--surface)">
         <rect x="7" y="13" width="3" height="6" rx="1.5" />
         <rect x="12" y="9" width="3" height="14" rx="1.5" />
         <rect x="17" y="11" width="3" height="10" rx="1.5" />
-        <rect x="22" y="14" width="3" height="4" rx="1.5" fill="#8b6dff" />
+        <rect x="22" y="14" width="3" height="4" rx="1.5" fill="var(--lavender-2)" />
       </g>
     </svg>
   );

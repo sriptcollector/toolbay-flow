@@ -1,6 +1,6 @@
 [package]
 name = "toolbay-flow"
-version = "0.3.0"
+version = "0.4.0"
 description = "Toolbay Flow: free, local, open-source voice dictation for any app"
 authors = ["Orion Jones"]
 license = "MIT"

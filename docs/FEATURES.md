@@ -1,4 +1,4 @@
-# Parity checklist vs Wispr Flow (v0.3.0)
+# Parity checklist vs Wispr Flow (v0.4.0)
 
 Source: the reverse-engineering report in toolbay-research (evidence/03 product/UI, 01 architecture,
 02 pipeline). "Verified" = exercised on Windows 11 + RTX 4070 Ti. "Built" = implemented, unit-tested
@@ -43,6 +43,7 @@ Release-to-text latency on this PC (p50 / p95, 20 runs, includes AI cleanup):
 
 | Original screen / element | Toolbay Flow |
 |---|---|
+| Look: warm-paper light theme + dark, frameless window with own title bar, 216px collapsible sidebar, rounded content panel, serif display headings, banners, underlined tabs | Built; checked side by side against the original's media-kit screenshots (Dictation, Insights, Dictionary, Snippets, Style) |
 | Onboarding: welcome | Built, with "Inspired by" credit |
 | About you (role, where you heard) | Built (stays local) |
 | Where you spend time typing | Built |
@@ -71,7 +72,6 @@ Release-to-text latency on this PC (p50 / p95, 20 runs, includes AI cleanup):
 - Screenshot OCR for context; browser URL detection (window title is used).
 - "Hey Flow" / Instruct agent mode with tool calls; MCP server.
 - GPU speech on AMD/Intel GPUs on Windows (CPU today; cleanup already uses Vulkan).
-- Light theme (Flow follows the Toolbay dark theme).
 - Bar docking to the left/right screen edge.
 - macOS: built in CI, not tested on a real Mac.
 - Code signing: prepared, needs certificates (docs/SIGNING.md).

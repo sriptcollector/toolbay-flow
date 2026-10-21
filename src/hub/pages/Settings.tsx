@@ -25,6 +25,13 @@ export default function SettingsPage() {
   return (
     <Page title="Settings">
       <Section title="General">
+        <Row title="Appearance" desc="Light like paper, or dark for late nights.">
+          <select value={s.appearance} onChange={(e) => save({ appearance: e.target.value as "light" | "dark" | "system" })}>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+            <option value="system">Match my computer</option>
+          </select>
+        </Row>
         <Row title="Launch at login" desc="Start Flow quietly in the tray when you sign in.">
           <Toggle on={s.launch_at_login} onChange={(v) => save({ launch_at_login: v })} />
         </Row>

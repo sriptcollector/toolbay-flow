@@ -137,6 +137,8 @@ pub struct Settings {
     pub cloud_asr: CloudLlm,
     /// Keep settings, dictionary and snippets in step across this person's
     /// computers through their Toolbay account (only when signed in). On by default.
+    /// "light" (default, like the original), "dark" or "system".
+    pub appearance: String,
     pub sync_enabled: bool,
     /// Also sync recent dictations (text only, never audio). Off by default.
     pub sync_history: bool,
@@ -201,6 +203,7 @@ impl Default for Settings {
                 api_key: String::new(),
                 model: "whisper-large-v3-turbo".into(),
             },
+            appearance: "light".into(),
             sync_enabled: true,
             sync_history: false,
             hotkeys_other_os: serde_json::Value::Null,

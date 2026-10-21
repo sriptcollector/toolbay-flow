@@ -1,62 +1,68 @@
 import { useState } from "react";
 import { Settings, Style } from "../../api";
-import { Page, Section, useSettings } from "../ui";
+import { Section, Tabs, useSettings } from "../ui";
 
-const CATS: [keyof Settings["styles"], string, string, string][] = [
-  ["personal", "Personal messages", "WhatsApp, Messages, Discord, Telegram", "hey are we still on for tonight i can bring snacks"],
-  ["work", "Work messages", "Slack, Teams, Linear, Notion", "Quick update: the build is green and I'll ship it after lunch"],
-  ["email", "Email", "Gmail, Outlook and other mail apps", "Hi Dana, thanks for the notes. I'll send the revised draft by Friday. Best, Sam"],
-  ["other", "Everything else", "Docs, browsers, editors, AI chats", "The results suggest a clear improvement in retention over the last quarter."],
+type Cat = keyof Settings["styles"];
+const CATS: [Cat, string, string, string, string][] = [
+  ["personal", "Personal messages", "This style is used in personal messages", "WhatsApp, Messages, Discord, Telegram", "hey are you free for dinner tomorrow? let's do 7 if that works for you"],
+  ["work", "Work messages", "This style is used in work chats", "Slack, Teams, Linear, Notion", "Quick update: the build is green and I'll ship it after lunch"],
+  ["email", "Email", "This style is used in email", "Gmail, Outlook and other mail apps", "Hi Dana, thanks for the notes. I'll send the revised draft by Friday."],
+  ["other", "Other", "This style is used everywhere else", "Docs, browsers, editors, AI chats", "The results suggest a clear improvement in retention over the last quarter."],
 ];
 
 const STYLES: [Style, string, string][] = [
-  ["formal", "Formal", "Capitals and full punctuation"],
-  ["casual", "Casual", "Capitals, lighter punctuation"],
-  ["very_casual", "Very casual", "lowercase, minimal punctuation"],
-  ["excited", "Excited", "Upbeat, more exclamation marks!"],
+  ["formal", "Formal.", "Caps + Punctuation"],
+  ["casual", "Casual", "Caps + Less punctuation"],
+  ["very_casual", "very casual", "No caps + Less punctuation"],
+  ["excited", "Excited!", "Caps + Exclamation points"],
 ];
 
 function sample(text: string, s: Style) {
-  let t = text;
+  let t = text.charAt(0).toUpperCase() + text.slice(1);
+  t = t.replace(/^Hey are/, "Hey, are").replace(/tomorrow\? let's/, "tomorrow? Let's");
+  if (!/[.!?]$/.test(t)) t += ".";
   if (s === "casual") t = t.replace(/\.$/, "");
-  if (s === "very_casual") t = t.charAt(0).toLowerCase() + t.slice(1).replace(/[.,]/g, "").replace(/:/g, "");
-  if (s === "excited") t = t.replace(/\.$/, "!").replace(/(tonight)/, "$1!");
-  if (s === "formal") {
-    t = t.charAt(0).toUpperCase() + t.slice(1);
-    if (!/[.!?]$/.test(t)) t += ".";
-    t = t.replace(/^hey are/, "Hey, are").replace(/tonight i/, "tonight? I");
-  }
+  if (s === "very_casual") t = t.charAt(0).toLowerCase() + t.slice(1).replace(/[.,:]/g, "").replace(/\? L/, "? l");
+  if (s === "excited") t = t.replace(/\.$/, "!");
   return t;
 }
 
+const AVATAR: Record<Style, string> = { formal: "#ecd5fb", casual: "#ffc4f0", very_casual: "#7232a6", excited: "#ffa946" };
+
 export default function StylePage() {
   const [s, save] = useSettings();
+  const [tab, setTab] = useState<Cat>("personal");
   const [app, setApp] = useState("");
-  const [cat, setCat] = useState("work");
   if (!s) return null;
+  const cat = CATS.find((c) => c[0] === tab)!;
+  const initial = (s.name.trim()[0] || "Y").toUpperCase();
   return (
-    <Page title="Style" sub="Flow writes differently depending on where you are. Pick how each kind of app should sound. Styles apply to English.">
-      {CATS.map(([key, title, apps, text]) => (
-        <section key={key} className="section">
-          <div className="section-head">
-            <h3>{title}</h3>
-            <span className="muted small">{apps}</span>
-          </div>
-          <div className="styles">
-            {STYLES.map(([id, label, desc]) => (
-              <button
-                key={id}
-                className={`card style-card ${s.styles[key] === id ? "sel" : ""}`}
-                onClick={() => save({ styles: { ...s.styles, [key]: id } })}
-              >
-                <div className="style-label">{label}</div>
-                <div className="style-desc">{desc}</div>
-                <div className="style-sample">{sample(text, id)}</div>
-              </button>
-            ))}
-          </div>
-        </section>
-      ))}
+    <div className="page">
+      <header className="page-head">
+        <h1>Styles</h1>
+      </header>
+      <Tabs tabs={CATS.map((c) => [c[0], c[1]] as [Cat, string])} value={tab} onChange={setTab} />
+      <section className="hero dusk hero-row">
+        <div>
+          <h2 className="hero-h-sm">{cat[2]}</h2>
+          <p>
+            {cat[3]}. Style formatting applies to English for now.
+          </p>
+        </div>
+      </section>
+      <div className="style-cards">
+        {STYLES.map(([id, label, desc]) => (
+          <button key={id} className={`style-card ${s.styles[tab] === id ? "sel" : ""}`} onClick={() => save({ styles: { ...s.styles, [tab]: id } })}>
+            <div className="style-label serif">{label}</div>
+            <div className="style-desc">{desc}</div>
+            <div className="bubble">{sample(cat[4], id)}</div>
+            <div className="avatar" style={{ background: AVATAR[id], color: id === "very_casual" ? "#fff" : "#fff" }}>
+              {initial}
+            </div>
+          </button>
+        ))}
+      </div>
+
       <Section title="Your own app rules" aside={<span className="muted small">Use the program name, e.g. notepad.exe</span>}>
         <div className="pad">
           {Object.entries(s.app_categories).map(([k, v]) => (
@@ -78,18 +84,12 @@ export default function StylePage() {
           ))}
           <div className="addrow">
             <input placeholder="app.exe" value={app} onChange={(e) => setApp(e.target.value)} />
-            <select value={cat} onChange={(e) => setCat(e.target.value)}>
-              {CATS.map((c) => (
-                <option key={c[0]} value={c[0]}>
-                  {c[1]}
-                </option>
-              ))}
-            </select>
+            <span className="muted">uses the {cat[1].toLowerCase()} style</span>
             <button
               className="btn"
               onClick={() => {
                 if (!app.trim()) return;
-                save({ app_categories: { ...s.app_categories, [app.trim().toLowerCase()]: cat } });
+                save({ app_categories: { ...s.app_categories, [app.trim().toLowerCase()]: tab } });
                 setApp("");
               }}
             >
@@ -98,6 +98,6 @@ export default function StylePage() {
           </div>
         </div>
       </Section>
-    </Page>
+    </div>
   );
 }

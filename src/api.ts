@@ -65,6 +65,7 @@ export interface Settings {
   press_enter_command: boolean;
   bar_snooze_until: number;
   debug_recordings: boolean;
+  appearance: "light" | "dark" | "system";
   sync_enabled: boolean;
   sync_history: boolean;
   engine: "local" | "cloud";

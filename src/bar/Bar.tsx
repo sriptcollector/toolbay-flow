@@ -11,7 +11,7 @@ interface BarState {
   message: string | null;
 }
 
-const BARS = 12;
+const BARS = 10;
 
 export default function Bar() {
   const [st, setSt] = useState<BarState>({ phase: "idle", mode: null, message: null });
@@ -170,7 +170,7 @@ export default function Bar() {
           <div className="wave">
             {levels.current.map((l, i) => {
               const c = (BARS - 1) / 2;
-              const bulge = 1 - ((i - c) * (i - c)) / (c * c * 1.6);
+              const bulge = 1 - ((i - c) * (i - c)) / 48;
               const h = Math.max(0.12, Math.min(1, l * 1.6 * bulge + 0.08));
               return <i key={i} style={{ transform: `scaleY(${h})` }} />;
             })}
@@ -192,7 +192,13 @@ export default function Bar() {
           </div>
         )}
         {st.phase === "error" && <span className="label err">!</span>}
-        {st.phase === "idle" && hover && <div className="mic" />}
+        {st.phase === "idle" && hover && (
+          <div className="wave flat">
+            {Array.from({ length: BARS }).map((_, i) => (
+              <i key={i} />
+            ))}
+          </div>
+        )}
         {recording && st.mode === "hands_free" && (
           <button
             className="ctl stop"

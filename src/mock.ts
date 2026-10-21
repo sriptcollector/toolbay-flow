@@ -20,6 +20,7 @@ const settings = {
   press_enter_command: true,
   bar_snooze_until: 0,
   debug_recordings: false,
+  appearance: "light",
   sync_enabled: true,
   sync_history: false,
   engine: "local",

@@ -40,6 +40,7 @@ const SETTINGS: &[&str] = &[
     "press_enter_command",
     "engine",
     "sync_history",
+    "appearance",
 ];
 /// Cloud engine choices: provider address and model sync, the key stays here.
 const CLOUD: &[&str] = &["cloud_asr", "cloud_llm", "anthropic"];

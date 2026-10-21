@@ -6,7 +6,7 @@ html.bar-root #root {
   height: 100%;
   overflow: hidden;
   user-select: none;
-  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-family: "Figtree Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 
 .bar-stage {
@@ -25,92 +25,101 @@ html.bar-root #root {
 }
 
 .pill {
-  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease: cubic-bezier(0.05, 0.6, 0.4, 0.95);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   box-sizing: border-box;
   color: #fff;
-  background: rgba(17, 19, 24, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 999px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
-  transition: width 0.16s var(--ease), height 0.16s var(--ease), background 0.15s, border-color 0.15s, opacity 0.2s;
+  background: #1a1a1a;
+  border: 1px solid #30302f;
+  border-radius: 22.5px;
+  box-shadow: 0 4px 14px rgba(26, 26, 26, 0.25);
+  transition: all 0.1s var(--ease);
   cursor: default;
   overflow: hidden;
 }
 .pill.rest {
-  width: 46px;
-  height: 7px;
-  opacity: 0.75;
-  background: rgba(17, 19, 24, 0.55);
-  border-color: rgba(255, 255, 255, 0.35);
+  width: 40px;
+  height: 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.5);
+  border-color: rgba(255, 255, 255, 0.5);
   box-shadow: none;
 }
 .pill.open {
-  height: 32px;
-  min-width: 58px;
-  padding: 0 12px;
+  height: 30px;
+  width: 50px;
+  padding: 0 8px;
 }
 .pill.idle.open {
   cursor: pointer;
 }
 .pill.idle.open:hover {
-  background: rgba(36, 40, 50, 0.96);
+  background: #30302f;
+  border-color: #5b5b59;
 }
 .pill.recording {
-  min-width: 96px;
+  width: 73px;
 }
 .pill.hf {
-  min-width: 156px;
+  width: 102.5px;
   padding: 0 5px;
   justify-content: space-between;
 }
 .pill.command {
-  border-color: #f5a524;
-  box-shadow: 0 0 0 1px rgba(245, 165, 36, 0.35), 0 6px 20px rgba(0, 0, 0, 0.28);
+  border-color: #ffa946;
+}
+.pill.command.recording {
+  width: auto;
+  min-width: 73px;
+  padding: 0 12px;
 }
 .pill.processing {
-  min-width: 86px;
+  width: auto;
+  min-width: 98px;
+  padding: 0 14px;
 }
 .pill.error {
-  border-color: #f05d5d;
+  width: 91px;
+  border: 1.5px solid #ee6a6a;
 }
 .pill.done {
-  border-color: rgba(80, 200, 140, 0.8);
+  width: auto;
+  min-width: 73px;
+  padding: 0 14px;
 }
 
 .wave {
   display: flex;
   align-items: center;
-  gap: 3px;
-  height: 18px;
+  gap: 2.5px;
+  height: 16px;
 }
 .wave i {
   display: block;
-  width: 3px;
-  height: 18px;
-  border-radius: 2px;
+  width: 2px;
+  height: 16px;
+  border-radius: 0.5px;
   background: #fff;
+  opacity: 0.4;
   transform-origin: center;
   transition: transform 0.07s linear;
 }
-.pill.command .wave i {
-  background: #ffd38a;
+.pill.recording .wave i {
+  opacity: 1;
 }
-
-.mic {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #8b6dff;
-  box-shadow: 0 0 0 4px rgba(139, 109, 255, 0.22);
+.wave.flat i {
+  transform: scaleY(0.14);
+}
+.pill.command .wave i {
+  background: #ffcf8f;
 }
 
 .ctl {
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   border: none;
   display: grid;
@@ -132,14 +141,14 @@ html.bar-root #root {
   stroke-linecap: round;
 }
 .ctl.stop {
-  background: #f05d5d;
+  background: #ee6a6a;
 }
 .ctl.stop:hover {
-  background: #ff7676;
+  background: #ff8080;
 }
 .ctl.stop span {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 2px;
   background: #fff;
 }
@@ -203,10 +212,10 @@ html.bar-root #root {
   font-size: 12.5px;
   line-height: 1.35;
   color: #fff;
-  background: rgba(17, 19, 24, 0.94);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
-  padding: 7px 12px;
+  background: #1a1a1a;
+  border: 1px solid #30302f;
+  border-radius: 34px;
+  padding: 6px 14px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
   display: flex;
   align-items: center;
@@ -221,10 +230,10 @@ html.bar-root #root {
   color: #fff;
 }
 .bubble.error {
-  border-color: rgba(240, 93, 93, 0.6);
+  border-color: #ee6a6a;
 }
 .bubble.learned {
-  border-color: rgba(139, 109, 255, 0.5);
+  border-color: #d2ace9;
 }
 .bubble button {
   background: #fff;
@@ -244,8 +253,8 @@ html.bar-root #root {
 .menu {
   min-width: 230px;
   max-width: 320px;
-  background: rgba(20, 20, 20, 0.98);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #1a1a1a;
+  border: 1px solid #30302f;
   border-radius: 12px;
   padding: 5px;
   display: flex;
@@ -271,7 +280,7 @@ html.bar-root #root {
 }
 .menu button.on::before {
   content: "✓ ";
-  color: #8b6dff;
+  color: #d2ace9;
 }
 .menu-label {
   font-size: 11px;

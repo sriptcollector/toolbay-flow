@@ -37,8 +37,11 @@ change, and the "Toolbay tool rules" apply to every Toolbay app.
      the README header and the repo social preview. Nowhere else.
    - Both come from one config entry (`brand.json` → `inspiredBy`: name, company, logoUrl,
      website, notAffiliated), so the credit can be removed everywhere in one change.
-10. **Theme.** Use the shared Toolbay theme tokens (`src/theme/toolbay-theme.css`, the same file
-    the hub uses) with the original app's layout and feel.
+10. **Look.** 1:1 with the original app's UI, screen for screen: layout, sidebar, spacing, sizes,
+    type scale, radii, palette, light/dark behaviour, the bar's shape, states and timing. Flow's
+    tokens live in `src/theme/flow-theme.css` (warm-paper light theme by default, dark on request);
+    fonts are free look-alikes (Figtree, EB Garamond), icons are lucide, art is our own CSS. Check
+    changes against the original's public screenshots side by side before shipping.
 11. **Lives under the hub.** Ship a `toolbay.json` install manifest with each GitHub release.
     Support `--from-toolbay`, `--show`, `--hide`, `--quit`, single-instance, a `running.json` ({pid, visible, window, updatedAt}, rewritten on every show/hide)
     state file, and the hub's `TOOLBAY_TOKEN` (memory only, never written to disk).

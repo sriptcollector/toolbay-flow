@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useRef, useState } from "react";
 import { api, LANGUAGES, on, Style } from "../api";
 import { comboLabel, isMac } from "../keys";
 import Credit from "./Credit";
-import { Logo } from "./Hub";
+import { Logo, TitleBar, useTheme } from "./Hub";
 import { ActiveDownload, useModelStatus } from "./pages/Models";
 import { useRecorder } from "./pages/Shortcuts";
 import { Keys, Toggle, useSettings } from "./ui";
@@ -32,6 +32,7 @@ const USES: [string, string][] = [
 export default function Onboarding({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState(0);
   const [s, save] = useSettings();
+  useTheme(s?.appearance);
   if (!s) return null;
   const next = () => setStep((x) => Math.min(x + 1, STEPS.length - 1));
   const back = () => setStep((x) => Math.max(0, x - 1));
@@ -43,8 +44,11 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
   const props = { next, back };
   return (
     <div className="ob">
+      <TitleBar>
+        <Logo size={24} />
+        <span className="ob-brand">Flow</span>
+      </TitleBar>
       <div className="ob-top">
-        <Logo size={26} />
         <div className="ob-steps">
           {GROUPS.map(([t], gi) => {
             const end = GROUPS[gi + 1]?.[1] ?? STEPS.length;
@@ -121,7 +125,7 @@ function useProfile() {
 
 function Welcome({ next }: { next: () => void }) {
   return (
-    <div className="ob-card hero">
+    <div className="ob-card welcome">
       <h1 className="display">Talk. It types.</h1>
       <p className="lead">
         Flow turns what you say into clean, punctuated text in any app: email, chat, docs, code, AI prompts. It runs on this computer, it's free, and the code is

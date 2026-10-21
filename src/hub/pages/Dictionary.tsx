@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
+import { Star, Trash2, Sparkles } from "lucide-react";
 import { api, DictEntry, on } from "../../api";
-import { Empty, Icon, Page, Row, Section, Toggle, useSettings } from "../ui";
+import { Empty, Modal, Row, Section, Tabs, Toggle, useSettings } from "../ui";
+
+const EXAMPLES = ["Toolbay", "Kubernetes", "Q4 planning", "Siobhan"];
+type Filter = "all" | "starred" | "learned";
 
 export default function Dictionary() {
   const [list, setList] = useState<DictEntry[]>([]);
-  const [word, setWord] = useState("");
-  const [rule, setRule] = useState(false);
-  const [from, setFrom] = useState("");
+  const [tab, setTab] = useState<Filter>("all");
+  const [adding, setAdding] = useState<{ word: string; from: string; rule: boolean } | null>(null);
   const [settings, save] = useSettings();
   const load = () => api.dictList(false).then(setList);
   useEffect(() => {
@@ -20,34 +23,81 @@ export default function Dictionary() {
   }, []);
 
   const add = async () => {
-    if (!word.trim()) return;
-    if (rule && from.trim()) await api.dictSave({ phrase: from.trim(), replacement: word.trim() });
-    else await api.dictSave({ phrase: word.trim() });
-    setWord("");
-    setFrom("");
+    if (!adding?.word.trim()) return;
+    if (adding.rule && adding.from.trim()) await api.dictSave({ phrase: adding.from.trim(), replacement: adding.word.trim() });
+    else await api.dictSave({ phrase: adding.word.trim() });
+    setAdding(null);
     load();
   };
+  const open = (word = "") => setAdding({ word, from: "", rule: false });
+
+  const shown = list.filter((e) => (tab === "starred" ? e.starred : tab === "learned" ? e.source === "user_edits" : true));
 
   return (
-    <Page title="Dictionary" sub="Names, product terms and jargon Flow should always spell your way. They also help the speech model hear them.">
-      <div className="card pad addbox">
-        <div className="addrow">
-          {rule && <input placeholder="When I say…" value={from} onChange={(e) => setFrom(e.target.value)} />}
-          {rule && <span className="arrow">→</span>}
-          <input
-            placeholder={rule ? "Write it as…" : "Add a word or name, e.g. Toolbay, Kubernetes, Siobhan"}
-            value={word}
-            onChange={(e) => setWord(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && add()}
-          />
-          <button className="btn primary" onClick={add}>
-            Add
+    <div className="page">
+      <header className="page-head">
+        <h1>Dictionary</h1>
+        <button className="btn primary" onClick={() => open()}>
+          Add new
+        </button>
+      </header>
+      <Tabs
+        tabs={[
+          ["all", "All"],
+          ["starred", "Starred"],
+          ["learned", "Learned"],
+        ]}
+        value={tab}
+        onChange={setTab}
+      />
+      <section className="hero amber">
+        <h2>Teach Flow your words</h2>
+        <p>Names, product terms and jargon you use. Flow spells them your way every time, and they help it hear them right. It also learns new ones when you correct a word.</p>
+        <div className="hero-actions">
+          <button className="btn primary dark-solid" onClick={() => open()}>
+            Add a new word
           </button>
+          {EXAMPLES.map((w) => (
+            <button key={w} className="btn glass" onClick={() => open(w)}>
+              {w}
+            </button>
+          ))}
         </div>
-        <label className="check">
-          <input type="checkbox" checked={rule} onChange={(e) => setRule(e.target.checked)} /> Replace a misheard phrase with a different spelling
-        </label>
-      </div>
+      </section>
+
+      {shown.length === 0 ? (
+        <Empty title={tab === "all" ? "No words yet" : tab === "starred" ? "No starred words" : "Nothing learned yet"}>
+          {tab === "all" ? "Add the names and terms you use often." : tab === "starred" ? "Star a word to give it priority." : "When you fix a word right after pasting, it shows up here."}
+        </Empty>
+      ) : (
+        <div className="list-card">
+          {shown.map((e) => (
+            <div key={e.id} className="entry">
+              <div className="entry-main">
+                {e.replacement ? (
+                  <>
+                    {e.phrase} <span className="arrow">→</span> {e.replacement}
+                  </>
+                ) : (
+                  e.phrase
+                )}
+                {e.source === "user_edits" && <Sparkles size={15} className="sparkle" aria-label="Learned" />}
+              </div>
+              {e.uses > 0 && <span className="uses">{e.uses}×</span>}
+              {e.starred && <Star size={17} className="star-on" />}
+              <div className="entry-tools">
+                <button className="icon-btn" title={e.starred ? "Unstar" : "Star (prioritized)"} onClick={() => api.dictSave({ ...e, starred: !e.starred }).then(load)}>
+                  <Star />
+                </button>
+                <button className="icon-btn" title="Delete" onClick={() => api.dictDelete(e.id).then(load)}>
+                  <Trash2 />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {settings && (
         <Section>
           <Row title="Learn from my corrections" desc="When you fix a word right after pasting, Flow adds the correct spelling here. You can undo it from the bar.">
@@ -55,37 +105,37 @@ export default function Dictionary() {
           </Row>
         </Section>
       )}
-      {list.length === 0 ? (
-        <Empty title="No words yet">Add the names and terms you use often.</Empty>
-      ) : (
-        <div className="card list">
-          {list.map((e) => (
-            <div key={e.id} className="dict">
-              <button
-                className={`star ${e.starred ? "on" : ""}`}
-                title="Star (prioritized)"
-                onClick={() => api.dictSave({ ...e, starred: !e.starred }).then(load)}
-              >
-                {Icon.star}
+
+      {adding && (
+        <Modal
+          title="Add to dictionary"
+          onClose={() => setAdding(null)}
+          actions={
+            <>
+              <button className="btn" onClick={() => setAdding(null)}>
+                Cancel
               </button>
-              <div className="dict-main">
-                {e.replacement ? (
-                  <>
-                    <span className="muted">{e.phrase}</span> <span className="arrow">→</span> <b>{e.replacement}</b>
-                  </>
-                ) : (
-                  <b>{e.phrase}</b>
-                )}
-              </div>
-              {e.source === "user_edits" && <span className="tag learned">Learned</span>}
-              {e.uses > 0 && <span className="uses">used {e.uses}×</span>}
-              <button className="icon-btn" title="Delete" onClick={() => api.dictDelete(e.id).then(load)}>
-                {Icon.trash}
+              <button className="btn primary" onClick={add} disabled={!adding.word.trim()}>
+                Add word
               </button>
-            </div>
-          ))}
-        </div>
+            </>
+          }
+        >
+          {adding.rule && (
+            <label>
+              When Flow hears
+              <input value={adding.from} placeholder="tool bay" onChange={(e) => setAdding({ ...adding, from: e.target.value })} />
+            </label>
+          )}
+          <label>
+            {adding.rule ? "Write it as" : "Word or name"}
+            <input autoFocus value={adding.word} placeholder="Toolbay" onChange={(e) => setAdding({ ...adding, word: e.target.value })} onKeyDown={(e) => e.key === "Enter" && add()} />
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={adding.rule} onChange={(e) => setAdding({ ...adding, rule: e.target.checked })} /> Replace a misheard phrase with this spelling
+          </label>
+        </Modal>
       )}
-    </Page>
+    </div>
   );
 }
