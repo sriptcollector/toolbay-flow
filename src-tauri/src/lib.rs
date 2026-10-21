@@ -165,8 +165,12 @@ fn bar_loop(app: AppHandle) {
                     let s = st.settings.read();
                     (s.show_bar && s.onboarded, s.bar_snooze_until)
                 };
-                if show && until > 0 && until <= chrono::Utc::now().timestamp() && !w.is_visible().unwrap_or(true) {
-                    let _ = w.show();
+                if show && until > 0 && until <= chrono::Utc::now().timestamp() {
+                    st.settings.write().bar_snooze_until = 0;
+                    let _ = app.emit("bar-snoozed", 0i64);
+                    if !w.is_visible().unwrap_or(true) {
+                        let _ = w.show();
+                    }
                 }
             }
             let (Ok(cur), Ok(pos), Ok(scale)) = (app.cursor_position(), w.outer_position(), w.scale_factor()) else { continue };

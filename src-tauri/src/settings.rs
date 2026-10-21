@@ -296,3 +296,37 @@ pub fn save(dir: &PathBuf, s: &Settings) -> anyhow::Result<()> {
     crate::sync::poke();
     Ok(())
 }
+
+/// "Win + Alt + 1" style label for messages (the hub has its own fuller table).
+pub fn keys_label(keys: &[u32]) -> String {
+    #[cfg(not(target_os = "macos"))]
+    let (order, name): (&[u32], fn(u32) -> String) = (&[0x11, 0xA3, 0x5B, 0x12, 0xA5, 0x10], |c| match c {
+        0x10 => "Shift".into(),
+        0x11 => "Ctrl".into(),
+        0x12 => "Alt".into(),
+        0x5B => "Win".into(),
+        0xA3 => "Right Ctrl".into(),
+        0xA5 => "Right Alt".into(),
+        0x20 => "Space".into(),
+        0x1B => "Esc".into(),
+        0x30..=0x5A => char::from_u32(c).map(|x| x.to_string()).unwrap_or_default(),
+        0x70..=0x87 => format!("F{}", c - 0x6F),
+        _ => format!("Key {c}"),
+    });
+    #[cfg(target_os = "macos")]
+    let (order, name): (&[u32], fn(u32) -> String) = (&[63, 59, 62, 58, 61, 55, 54, 56], |c| match c {
+        63 => "Fn".into(),
+        59 => "Control".into(),
+        58 => "Option".into(),
+        55 => "\u{2318}".into(),
+        56 => "Shift".into(),
+        49 => "Space".into(),
+        18 => "1".into(),
+        19 => "2".into(),
+        20 => "3".into(),
+        _ => format!("Key {c}"),
+    });
+    let mut k = keys.to_vec();
+    k.sort_by_key(|c| (order.iter().position(|o| o == c).unwrap_or(99), *c));
+    k.into_iter().map(name).collect::<Vec<_>>().join(" + ")
+}

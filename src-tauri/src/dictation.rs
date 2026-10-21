@@ -86,8 +86,14 @@ pub enum Step {
     PasteLast,
     CopyLast,
     Transform(usize),
+    /// A transform shortcut while dictating: refused with a message.
+    TransformBlocked,
     Nothing,
 }
+
+/// Transforms take 1 to 1000 words and give up after 60 s (the original's limits).
+pub const TRANSFORM_MAX_WORDS: usize = 1000;
+pub const TRANSFORM_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The hotkey rules, kept free of side effects so they can be tested.
 /// `phase` is "idle", "recording" or "processing"; `elapsed` counts from the
@@ -119,6 +125,7 @@ pub fn decide(ev: &HotkeyEvent, phase: &str, mode: Mode, elapsed: Duration, comm
             Action::Transform1 if idle => Step::Transform(0),
             Action::Transform2 if idle => Step::Transform(1),
             Action::Transform3 if idle => Step::Transform(2),
+            Action::Transform1 | Action::Transform2 | Action::Transform3 if rec => Step::TransformBlocked,
             _ => Step::Nothing,
         },
         HotkeyEvent::Released(a) => match (a, mode) {
@@ -154,6 +161,8 @@ pub struct State {
     in_flight: Mutex<Option<Recovery>>,
     /// (times shown, last shown) for the "command mode is off" hint.
     command_off_hint: Mutex<(u32, Option<Instant>)>,
+    /// Name of the transform in progress, if any.
+    transform_running: Mutex<Option<String>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -208,11 +217,17 @@ impl State {
             recovery: Mutex::new(None),
             in_flight: Mutex::new(None),
             command_off_hint: Mutex::new((0, None)),
+            transform_running: Mutex::new(None),
         }))
     }
 
     pub fn bar(&self, phase: &'static str, mode: Option<Mode>, message: Option<String>) {
         let _ = self.app.emit("bar-state", BarState { phase, mode, message, action: None, ms: None });
+    }
+
+    /// A message above the bar that stays `ms` milliseconds.
+    pub fn notice_ms(&self, msg: impl Into<String>, ms: u32) {
+        let _ = self.app.emit("bar-state", BarState { phase: "notice", mode: None, message: Some(msg.into()), action: None, ms: Some(ms) });
     }
 
     /// A message above the bar with one button.
@@ -428,11 +443,11 @@ fn on_hotkey(st: &St, ev: HotkeyEvent) {
         Step::Stop => stop(st),
         Step::Cancel => cancel(st),
         Step::QuietCancel => {
-            cancel_keep(st, true);
+            cancel_keep(st);
         }
         Step::Discard => {
             st.generation.fetch_add(1, Ordering::SeqCst);
-            discard(st, false);
+            discard(st);
         }
         Step::AwaitSecondTap => {
             // Keep the mic open: a second press within TAP_MS of the first locks
@@ -446,13 +461,15 @@ fn on_hotkey(st: &St, ev: HotkeyEvent) {
                 };
                 if still {
                     st.generation.fetch_add(1, Ordering::SeqCst);
-                    discard(&st, false);
+                    discard(&st);
                 }
             });
         }
         Step::Busy => {
             // A press right as processing starts is the tail of the stop chord.
-            if busy_for > Duration::from_millis(TAP_MS) {
+            if let Some(name) = st.transform_running.lock().clone() {
+                st.notice_with(format!("You can't dictate while {name} is running"), "Cancel", "cancel", 6000);
+            } else if busy_for > Duration::from_millis(TAP_MS) {
                 st.notice_with("Still working on your last dictation", "Cancel", "cancel", 6000);
             }
         }
@@ -473,6 +490,7 @@ fn on_hotkey(st: &St, ev: HotkeyEvent) {
             }
         }
         Step::Transform(i) => transform(st, i),
+        Step::TransformBlocked => st.notice("Transforms don't work while you're dictating"),
         Step::Nothing => {}
     }
 }
@@ -602,7 +620,7 @@ pub fn start(st: &St, mode: Mode) {
         std::thread::sleep(NO_AUDIO_AFTER);
         if still_recording(&st4) && st4.rec.lock().snapshot().is_empty() {
             st4.generation.fetch_add(1, Ordering::SeqCst);
-            discard(&st4, false);
+            discard(&st4);
             if st4.settings.read().sounds {
                 sounds::play(Sound::Error);
             }
@@ -671,20 +689,18 @@ async fn stream_loop(st: St, stream: Arc<Mutex<StreamState>>, gen: u64) {
 }
 
 /// Ends the recording without processing it; returns what was recorded.
-fn discard(st: &St, with_sound: bool) -> Vec<f32> {
+/// Silent, like the original (its cancel has no sound).
+fn discard(st: &St) -> Vec<f32> {
     let samples = st.rec.lock().stop();
     st.session.lock().phase = Phase::Idle;
     st.hk.dismiss_armed.store(false, Ordering::Relaxed);
-    if with_sound && st.settings.read().sounds {
-        sounds::play(Sound::Cancel);
-    }
     st.bar("idle", None, None);
     samples
 }
 
 /// Drops the recording (or the processing in flight) and keeps it for Undo.
 /// Returns true when there was speech worth keeping.
-fn cancel_keep(st: &St, with_sound: bool) -> bool {
+fn cancel_keep(st: &St) -> bool {
     let (phase, mode, dur) = {
         let s = st.session.lock();
         (s.phase, s.mode, s.started.elapsed())
@@ -692,11 +708,11 @@ fn cancel_keep(st: &St, with_sound: bool) -> bool {
     st.generation.fetch_add(1, Ordering::SeqCst);
     let kept = match phase {
         Phase::Recording => {
-            let samples = discard(st, with_sound);
+            let samples = discard(st);
             Some(Recovery { samples, mode, dur })
         }
         Phase::Processing => {
-            discard(st, with_sound);
+            discard(st);
             st.in_flight.lock().take()
         }
         Phase::Idle => return false,
@@ -708,7 +724,7 @@ fn cancel_keep(st: &St, with_sound: bool) -> bool {
 
 /// Esc or the bar's cancel button.
 pub fn cancel(st: &St) {
-    if cancel_keep(st, true) {
+    if cancel_keep(st) {
         st.notice_with("Dictation cancelled", "Undo", "undo_cancel", 3000);
     }
 }
@@ -1108,6 +1124,18 @@ fn is_terminal(exe: &str) -> bool {
 
 /// After a paste, watch the field for a little while and learn names/jargon the
 /// user corrects by hand.
+/// Curly-quoted terms joined as "a, b, and c": how the learned-words toast
+/// lists them (the original's style).
+pub fn quoted_list(words: &[String]) -> String {
+    let q: Vec<String> = words.iter().map(|w| format!("\u{201c}{w}\u{201d}")).collect();
+    match q.len() {
+        0 => String::new(),
+        1 => q[0].clone(),
+        2 => format!("{} and {}", q[0], q[1]),
+        n => format!("{}, and {}", q[..n - 1].join(", "), q[n - 1]),
+    }
+}
+
 fn watch_edits(st: St, pasted: String, ctx: FocusContext, history_id: i64) {
     std::thread::spawn(move || {
         let anchor: String = llm::tail(ctx.before.trim_end(), 40);
@@ -1145,7 +1173,7 @@ fn watch_edits(st: St, pasted: String, ctx: FocusContext, history_id: i64) {
             if !words.is_empty() {
                 *st.last_learned.lock() = ids;
                 let _ = st.app.emit("dictionary-learned", words.clone());
-                st.bar("learned", None, Some(format!("Added {} to your dictionary", words.join(", "))));
+                st.bar("learned", None, Some(format!("Added {} to your dictionary", quoted_list(&words))));
             }
             return;
         }
@@ -1153,26 +1181,59 @@ fn watch_edits(st: St, pasted: String, ctx: FocusContext, history_id: i64) {
 }
 
 /// Rewrites the selected text with transform #i.
+/// How a transform ended, when it didn't paste new text.
+enum TransformStop {
+    NoSelection,
+    TooLong,
+    NoChange,
+    Empty,
+    TimedOut,
+}
+
 pub fn transform(st: &St, i: usize) {
     let tf = st.settings.read().transforms.get(i).cloned();
     let Some(tf) = tf else { return };
+    let shortcut = transform_shortcut_label(st, i);
     let st = st.clone();
-    st.session.lock().phase = Phase::Processing;
+    {
+        let mut ss = st.session.lock();
+        ss.phase = Phase::Processing;
+        ss.processing_since = Instant::now();
+    }
+    *st.transform_running.lock() = Some(tf.name.clone());
+    st.hk.dismiss_armed.store(true, Ordering::Relaxed);
     st.bar("processing", None, Some(tf.name.clone()));
+    let gen = st.generation.load(Ordering::SeqCst);
     tauri::async_runtime::spawn(async move {
-        let res: Result<String> = async {
+        let res: Result<std::result::Result<String, TransformStop>> = async {
             std::thread::sleep(Duration::from_millis(150));
             let ctx = tokio::task::spawn_blocking(|| context::capture(true)).await?;
             let mut sel = ctx.selected.clone();
             if sel.trim().is_empty() {
                 sel = tokio::task::spawn_blocking(paste::copy_selection).await?.unwrap_or_default();
             }
-            if sel.trim().is_empty() {
-                return Err(anyhow!("Select some text first"));
+            let words = count_words(&sel);
+            if words == 0 {
+                return Ok(Err(TransformStop::NoSelection));
+            }
+            if words > TRANSFORM_MAX_WORDS {
+                return Ok(Err(TransformStop::TooLong));
             }
             let l = llm_for(&st).await?;
             let (sys, msgs) = llm::transform_messages(&tf.instructions, &sel);
-            let out = l.chat(&sys, &msgs, 3000, Duration::from_secs(90)).await?;
+            let out = match tokio::time::timeout(TRANSFORM_TIMEOUT, l.chat(&sys, &msgs, 3000, TRANSFORM_TIMEOUT)).await {
+                Err(_) => return Ok(Err(TransformStop::TimedOut)),
+                Ok(r) => r?,
+            };
+            if out.trim().is_empty() {
+                return Ok(Err(TransformStop::Empty));
+            }
+            if out.trim() == sel.trim() {
+                return Ok(Err(TransformStop::NoChange));
+            }
+            if st.generation.load(Ordering::SeqCst) != gen {
+                return Ok(Ok(String::new()));
+            }
             let restore = st.settings.read().restore_clipboard;
             let o2 = out.clone();
             tokio::task::spawn_blocking(move || paste::paste(&o2, restore)).await??;
@@ -1190,15 +1251,39 @@ pub fn transform(st: &St, i: usize) {
                 let _ = st.db.add_history(&item, None);
                 let _ = st.app.emit("history-changed", ());
             }
-            Ok(tf.name.clone())
+            Ok(Ok(tf.name.clone()))
         }
         .await;
+        *st.transform_running.lock() = None;
+        if st.generation.load(Ordering::SeqCst) != gen {
+            // Cancelled with Esc.
+            st.notice(format!("{} cancelled", tf.name));
+            return;
+        }
         st.session.lock().phase = Phase::Idle;
+        st.hk.dismiss_armed.store(false, Ordering::Relaxed);
         match res {
-            Ok(name) => st.bar("done", None, Some(name)),
+            Ok(Ok(name)) => st.bar("done", None, Some(name)),
+            Ok(Err(stop)) => {
+                st.bar("idle", None, None);
+                match stop {
+                    TransformStop::NoSelection => st.notice_ms(format!("Select some text, then press {shortcut}"), 6000),
+                    TransformStop::TooLong => st.notice_ms(format!("Too long to transform. Try under {TRANSFORM_MAX_WORDS} words"), 6000),
+                    TransformStop::NoChange => st.notice_ms("Your text already looks good", 3000),
+                    TransformStop::Empty => st.notice_ms("The transform came back empty. Try again.", 6000),
+                    TransformStop::TimedOut => st.notice_ms("The transform took too long. Try again.", 6000),
+                }
+            }
             Err(e) => st.bar("error", None, Some(friendly_err(&e))),
         }
     });
+}
+
+/// "Win+Alt+1" style label of a transform's shortcut, for messages.
+fn transform_shortcut_label(st: &St, i: usize) -> String {
+    let action = [Action::Transform1, Action::Transform2, Action::Transform3].get(i).cloned();
+    let keys = st.settings.read().shortcuts.iter().find(|s| Some(&s.action) == action.as_ref()).map(|s| s.keys.clone());
+    keys.map(|k| settings::keys_label(&k)).unwrap_or_else(|| "its shortcut".into())
 }
 
 /// Re-runs a history item from its saved audio.
@@ -1258,11 +1343,14 @@ pub fn apply_settings(st: &St, new: Settings) -> Result<()> {
         }
     }
     if let Some(bar) = st.app.get_webview_window("bar") {
-        if new.show_bar && new.bar_snooze_until <= chrono::Utc::now().timestamp() {
+        // A snoozed bar keeps its window (for the "hidden for an hour" notice);
+        // the bar page hides the pill itself.
+        if new.show_bar {
             let _ = bar.show();
         } else {
             let _ = bar.hide();
         }
+        let _ = st.app.emit("bar-snoozed", new.bar_snooze_until);
     }
     *st.settings.write() = new;
     Ok(())
@@ -1306,6 +1394,14 @@ mod tests {
     }
     fn up(a: Action, phase: &str, mode: Mode, t: u64) -> Step {
         decide(&HotkeyEvent::Released(a), phase, mode, ms(t), true)
+    }
+
+    #[test]
+    fn learned_words_list() {
+        let w = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(quoted_list(&w(&["Orion"])), "\u{201c}Orion\u{201d}");
+        assert_eq!(quoted_list(&w(&["A", "B"])), "\u{201c}A\u{201d} and \u{201c}B\u{201d}");
+        assert_eq!(quoted_list(&w(&["A", "B", "C"])), "\u{201c}A\u{201d}, \u{201c}B\u{201d}, and \u{201c}C\u{201d}");
     }
 
     #[test]
@@ -1356,6 +1452,9 @@ mod tests {
         assert_eq!(down(Action::Dismiss, "recording", Mode::Ptt, 0), Step::Cancel);
         assert_eq!(down(Action::Dismiss, "processing", Mode::Ptt, 0), Step::Cancel);
         assert_eq!(down(Action::Dismiss, "idle", Mode::Ptt, 0), Step::Nothing);
+        // Transforms: only when idle; refused with a message while dictating.
+        assert_eq!(down(Action::Transform2, "idle", Mode::Ptt, 0), Step::Transform(1));
+        assert_eq!(down(Action::Transform1, "recording", Mode::HandsFree, 900), Step::TransformBlocked);
         // Paste last waits for every key to be up.
         assert_eq!(down(Action::PasteLast, "idle", Mode::Ptt, 0), Step::Nothing);
         assert_eq!(decide(&HotkeyEvent::AllReleased(Action::PasteLast), "idle", Mode::Ptt, ms(0), true), Step::PasteLast);

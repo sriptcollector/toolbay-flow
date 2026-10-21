@@ -292,3 +292,9 @@ html.bar-root #root {
   background: rgba(255, 255, 255, 0.08);
   margin: 4px 2px;
 }
+
+/* "Hide for 1 hour" */
+.pill.snoozed {
+  visibility: hidden;
+  pointer-events: none;
+}

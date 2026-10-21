@@ -14,7 +14,7 @@ team-only features that don't apply to a free local app).
 | Command mode (Ctrl+Win+Alt): edit selection by voice, or write from an instruction; "turned off" hint | Built. Parity: matched (hotkey states and hint traced, `decide()` tests; the model's output is not compared; docs/parity/dictation-core.md) |
 | Esc cancels while listening or processing (only then), "cancelled" notice with Undo that brings the dictation back | Built, unit-tested. Parity: matched (traced, `decide()` tests; docs/parity/dictation-core.md) |
 | Paste last (Alt+Shift+Z, fires once its keys are up; re-runs a cancelled or failed dictation) / copy last (Alt+Shift+X) | Built, matcher-tested. Parity: matched (traced, hotkey and `decide()` tests; docs/parity/dictation-core.md) |
-| Transforms 1-3 (Win+Alt+1/2/3): Polish, Prompt engineer, Make it shorter, editable | Built |
+| Transforms 1-3 (Win+Alt+1/2/3): Polish, Prompt engineer, Make it shorter, editable; 1-1000 words, 60 s limit, messages for no selection / no change / empty / too long / cancelled, refused while dictating | Built, `decide()` tests. Parity: matched (traced; the third built-in differs, see docs/parity/bar-sounds-transforms.md) |
 | Shortcut editor: live recorder, modifier-only and Right Ctrl/Alt, conflicts, reserved combos, reset, instant apply | Built, regression-tested (the "can't change hotkeys" bug) |
 | Start-menu suppression for Win chords | Built |
 | Speech: local whisper.cpp, GPU (CUDA) when present | Verified: ~0.1 s for 10 s of audio |
@@ -32,7 +32,7 @@ team-only features that don't apply to a free local app).
 | Engine: local (default) or cloud with your own key (Groq/OpenAI-compatible), local fallback | Built (cloud not tested without a key) |
 | Debug recordings (audio + raw + final text, last 20) | Built |
 | Personal dictionary: words, replacement rules, star, usage counts, speech-model biasing | Built |
-| Auto-learn corrected words + "Added X" toast with Undo | Built |
+| Auto-learn corrected words + "Added X" toast with Undo | Built, unit-tested. Parity: matched (toast wording style, list format, 6 s, Undo traced; how edits are watched is native code in the original and not compared; docs/parity/bar-sounds-transforms.md) |
 | Snippets with length counter | Built |
 | Sync across computers with a Toolbay account: settings, styles, dictionary, snippets, transforms, shortcuts (per OS), engine choice, onboarding; optional last-50 history; never audio or API keys | Built; two-computer tests + live round trip against toolbay.ai |
 | 99 languages / auto-detect | Built |
@@ -65,10 +65,10 @@ Release-to-text latency on this PC (p50 / p95, 20 runs, includes AI cleanup):
 | Scratchpad notes | Built (page in the hub; no floating window, no rich text) |
 | Settings: general, voice, cleanup, experimental, data & privacy, about | Built |
 | Flow bar: rest sliver, hover, waveform, hands-free buttons, command colour, processing, done, error, toasts, follows monitor, click-through | Built; sizes, colours, waveform and timing from the original's shipped CSS. Parity: matched (static) |
-| Flow bar right-click menu: paste last, microphone, hide for 1 hour, open | Built |
+| Flow bar right-click menu, in the original's order: hide for 1 hour (with Undo), settings, microphone, dictation history, paste last | Built. Parity: matched (traced; docs/parity/bar-sounds-transforms.md) |
 | Tray menu, in the original's order: open, paste last + preview of the text, shortcuts, microphone, language, then settings, bar toggle, share feedback, quit | Built. Parity: matched (order traced; Settings and the bar toggle are our extras; docs/parity/dictation-core.md) |
 | Share feedback (feedback, bug, idea, show off) to the Toolbay Flow community on toolbay.ai; optional private debug info for bugs | Built |
-| Sounds: start, stop, hands-free lock, cancel, error | Built (own synthesized sounds) |
+| Sounds: start, stop, hands-free lock, error; cancelling is silent | Built (own synthesized sounds). Parity: matched (sound set and when each plays traced; docs/parity/bar-sounds-transforms.md) |
 
 ## Not built yet
 

@@ -24,6 +24,8 @@ export default function Bar() {
   const [menu, setMenu] = useState(false);
   const [mics, setMics] = useState<string[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
+  // "Hide for 1 hour": the pill goes away, messages above it still show.
+  const [snoozed, setSnoozed] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const levels = useRef<number[]>(Array(BARS).fill(0));
   const [, force] = useState(0);
@@ -37,6 +39,7 @@ export default function Bar() {
     const loadHint = () =>
       api.getSettings().then((s: Settings) => {
         setSettings(s);
+        setSnoozed(s.bar_snooze_until * 1000 > Date.now());
         const ptt = s.shortcuts.find((x) => x.action === "push_to_talk");
         setHint(ptt ? comboLabel(ptt.keys) : "");
       });
@@ -64,6 +67,7 @@ export default function Bar() {
         force((n) => n + 1);
       }),
       on("settings-changed", loadHint),
+      on<number>("bar-snoozed", (until) => setSnoozed(until * 1000 > Date.now())),
     ];
     return () => offs.forEach((f) => f());
   }, []);
@@ -82,7 +86,7 @@ export default function Bar() {
       const r = el.getBoundingClientRect();
       rects.push([r.left - pad, r.top - pad, r.width + pad * 2, r.height + pad * 2]);
     };
-    add(pillRef.current, st.phase === "idle" && !hover ? 10 : 6);
+    if (!(snoozed && st.phase === "idle")) add(pillRef.current, st.phase === "idle" && !hover ? 10 : 6);
     add(bubbleRef.current, 2);
     add(menuRef.current, 2);
     api.barHit(rects).catch(() => {});
@@ -96,6 +100,8 @@ export default function Bar() {
     st.phase,
     st.mode === "command" ? "command" : "",
     st.mode === "hands_free" && recording ? "hf" : "",
+    // Snoozed: only the resting pill hides; dictation still shows.
+    snoozed && st.phase === "idle" && !menu ? "snoozed" : "",
   ].join(" ");
 
   return (
@@ -127,7 +133,10 @@ export default function Bar() {
       )}
       {menu && settings && (
         <div ref={menuRef} className="menu" onMouseLeave={() => setMenu(false)}>
-          <button onClick={() => (setMenu(false), api.barAction("paste_last"))}>Paste last dictation</button>
+          {/* Same order as the original's bar menu. */}
+          <button onClick={() => (setMenu(false), api.barAction("hide_1h"))}>Hide for 1 hour</button>
+          <button onClick={() => (setMenu(false), api.barAction("settings"))}>Settings</button>
+          <div className="menu-sep" />
           <div className="menu-label">Microphone</div>
           {[null, ...mics].map((m) => (
             <button
@@ -144,8 +153,8 @@ export default function Bar() {
             </button>
           ))}
           <div className="menu-sep" />
-          <button onClick={() => (setMenu(false), api.barAction("hide_1h"))}>Hide this bar for 1 hour</button>
-          <button onClick={() => (setMenu(false), api.barAction("open"))}>Open Toolbay Flow</button>
+          <button onClick={() => (setMenu(false), api.barAction("history"))}>Dictation history</button>
+          <button onClick={() => (setMenu(false), api.barAction("paste_last"))}>Paste last dictation</button>
         </div>
       )}
       {hover && st.phase === "idle" && !bubble && !menu && hint && (

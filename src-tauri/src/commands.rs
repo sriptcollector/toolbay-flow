@@ -245,6 +245,7 @@ pub fn bar_action(st: State<St>, action: String) {
         "stop" => dictation::stop(&st),
         "cancel" => dictation::cancel(&st),
         "open" => crate::show_hub(&st.app, None),
+        "settings" => crate::show_hub(&st.app, Some("settings")),
         // The bar's menu: give focus back to the app under it before pasting.
         "paste_last" => {
             std::thread::spawn(move || {
@@ -258,10 +259,14 @@ pub fn bar_action(st: State<St>, action: String) {
             let mut s = st.settings.read().clone();
             s.bar_snooze_until = chrono::Utc::now().timestamp() + 3600;
             let _ = dictation::apply_settings(&st, s);
-            if let Some(b) = st.app.get_webview_window("bar") {
-                let _ = b.hide();
-            }
+            st.notice_with("The bar is hidden for an hour", "Undo", "show_bar", 6000);
         }
+        "show_bar" => {
+            let mut s = st.settings.read().clone();
+            s.bar_snooze_until = 0;
+            let _ = dictation::apply_settings(&st, s);
+        }
+        "history" => crate::show_hub(&st.app, Some("home")),
         _ => {}
     }
 }
