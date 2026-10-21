@@ -65,6 +65,8 @@ export interface Settings {
   press_enter_command: boolean;
   bar_snooze_until: number;
   debug_recordings: boolean;
+  sync_enabled: boolean;
+  sync_history: boolean;
   engine: "local" | "cloud";
   cloud_asr: CloudLlm;
 }
@@ -188,12 +190,24 @@ export const api = {
   quit: () => invoke<void>("quit"),
   uiReady: () => invoke<void>("ui_ready"),
   ownKey: (vk: number, down: boolean) => invoke<void>("own_key", { vk, down }),
+  syncStatus: () => invoke<SyncStatus>("sync_status"),
+  syncNow: () => invoke<SyncStatus>("sync_now"),
+  syncSignIn: () => invoke<void>("sync_sign_in"),
+  syncDeleteRemote: () => invoke<void>("sync_delete_remote"),
   toolbayAccount: () => invoke<{ name: string; handle: string; avatar_url: string | null } | null>("toolbay_account"),
   setDesktopShortcut: (on: boolean) => invoke<void>("set_desktop_shortcut", { on }),
   hasDesktopShortcut: () => invoke<boolean>("has_desktop_shortcut"),
   micCheck: () => invoke<{ ok: boolean; message: string }>("mic_check"),
   openSystemSettings: (kind: string) => invoke<void>("open_system_settings", { kind }),
 };
+
+export interface SyncStatus {
+  state: "off" | "signed_out" | "syncing" | "ok" | "offline" | "error" | "";
+  account: { name?: string; handle?: string; email?: string; avatarUrl?: string } | null;
+  synced_at: string | null;
+  pending: number;
+  message: string;
+}
 
 export function on<T>(event: string, cb: (payload: T) => void): () => void {
   let un: UnlistenFn | null = null;

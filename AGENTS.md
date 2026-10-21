@@ -42,6 +42,18 @@ change, and the "Toolbay tool rules" apply to every Toolbay app.
 11. **Lives under the hub.** Ship a `toolbay.json` install manifest with each GitHub release.
     Support `--from-toolbay`, `--show`, `--hide`, `--quit`, single-instance, a `running.json` ({pid, visible, window, updatedAt}, rewritten on every show/hide)
     state file, and the hub's `TOOLBAY_TOKEN` (memory only, never written to disk).
+12. **Account sync.** When the person is signed in to Toolbay, a tool keeps its settings the same
+    on every Mac and PC they use, through `toolbay.ai/api/v1/me/tools/<slug>/sync` (contract in
+    `src-tauri/src/sync/mod.rs`; copy that file, it's generic).
+    - Sync on launch, a couple of seconds after each change, and every few minutes. One item per
+      entry (`settings`, `dictionary/<id>`...), last write wins per item by time of change.
+    - Works offline and catches up later. Signed out, the tool works fully on its own.
+    - First sign-in on a new computer: the account copy wins, entries only that computer has are
+      added. A new computer gets everything with no re-onboarding.
+    - Never sync audio, API keys, passwords or anything tied to one computer's hardware (mic,
+      model choice). Per-OS data (hotkeys) is kept per platform. History is opt-in, off by default.
+    - Sign-in is the Toolbay app's (OS keychain entry `ai.toolbay.desktop`/`session`, or
+      `TOOLBAY_TOKEN`). Tools read it, never store their own copy, and only talk to toolbay.ai.
 
 ## Working on Flow
 

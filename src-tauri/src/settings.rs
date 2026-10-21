@@ -135,6 +135,14 @@ pub struct Settings {
     /// speech recognition with the user's own API key, OpenAI-compatible).
     pub engine: String,
     pub cloud_asr: CloudLlm,
+    /// Keep settings, dictionary and snippets in step across this person's
+    /// computers through their Toolbay account (only when signed in). On by default.
+    pub sync_enabled: bool,
+    /// Also sync recent dictations (text only, never audio). Off by default.
+    pub sync_history: bool,
+    /// Shortcuts saved on the user's other platform (Mac keys on Windows and the
+    /// other way round), kept so syncing never overwrites them.
+    pub hotkeys_other_os: serde_json::Value,
 }
 
 impl Default for Settings {
@@ -193,6 +201,9 @@ impl Default for Settings {
                 api_key: String::new(),
                 model: "whisper-large-v3-turbo".into(),
             },
+            sync_enabled: true,
+            sync_history: false,
+            hotkeys_other_os: serde_json::Value::Null,
         }
     }
 }
@@ -279,5 +290,6 @@ pub fn save(dir: &PathBuf, s: &Settings) -> anyhow::Result<()> {
     let tmp = dir.join("settings.json.tmp");
     std::fs::write(&tmp, serde_json::to_vec_pretty(s)?)?;
     std::fs::rename(tmp, path(dir))?;
+    crate::sync::poke();
     Ok(())
 }

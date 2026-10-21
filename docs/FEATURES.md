@@ -1,4 +1,4 @@
-# Parity checklist vs Wispr Flow (v0.2.2)
+# Parity checklist vs Wispr Flow (v0.3.0)
 
 Source: the reverse-engineering report in toolbay-research (evidence/03 product/UI, 01 architecture,
 02 pipeline). "Verified" = exercised on Windows 11 + RTX 4070 Ti. "Built" = implemented, unit-tested
@@ -33,6 +33,7 @@ team-only features that don't apply to a free local app).
 | Personal dictionary: words, replacement rules, star, usage counts, speech-model biasing | Built |
 | Auto-learn corrected words + "Added X" toast with Undo | Built |
 | Snippets with length counter | Built |
+| Sync across computers with a Toolbay account: settings, styles, dictionary, snippets, transforms, shortcuts (per OS), engine choice, onboarding; optional last-50 history; never audio or API keys | Built; two-computer tests + live round trip against toolbay.ai |
 | 99 languages / auto-detect | Built |
 
 Release-to-text latency on this PC (p50 / p95, 20 runs, includes AI cleanup):
@@ -52,7 +53,7 @@ Release-to-text latency on this PC (p50 / p95, 20 runs, includes AI cleanup):
 | Shortcut test ("do the keys light up?") | Built |
 | Try it yourself: message, email, doc practice screens | Built (own generic mock-ups, no third-party brands) |
 | Personalize styles | Built |
-| Speedy onboarding, trial offers, referrals, team invites, Flow Pro | Omitted (free, no accounts) |
+| Speedy onboarding, trial offers, referrals, team invites, Flow Pro | Omitted (free; the optional Toolbay account only syncs settings) |
 | Home: stats strip + searchable history by day (copy, original transcript, retry, delete) | Built |
 | Insights: words, WPM, streak, time saved, heatmap, per-app | Built |
 | Dictionary, Snippets, Style, Transforms pages | Built |

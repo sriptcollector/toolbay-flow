@@ -20,6 +20,8 @@ const settings = {
   press_enter_command: true,
   bar_snooze_until: 0,
   debug_recordings: false,
+  sync_enabled: true,
+  sync_history: false,
   engine: "local",
   cloud_asr: { base_url: "https://api.groq.com/openai/v1", api_key: "", model: "whisper-large-v3-turbo" },
   microphone: null,
@@ -127,6 +129,9 @@ export function installMocks() {
           return { hardware: { gpu_vendor: "nvidia", gpu_name: "NVIDIA GeForce RTX 4070 Ti", vram_mb: 12000, ram_mb: 65000, threads: 32 }, choice: { tier: "fast-gpu", speech_model: "large-v3-turbo-q5", llm_model: "qwen3-4b-instruct", cleanup: "medium", why: "NVIDIA GeForce RTX 4070 Ti with 11 GB" }, mode: "auto", speech_in_use: "large-v3-turbo-q5" };
         case "app_info":
           return { version: "0.1.0", fromToolbay: false, os: "windows" };
+        case "sync_status":
+        case "sync_now":
+          return { state: "ok", account: { name: "Orion", handle: "orion" }, synced_at: iso(2), pending: 0, message: "" };
         case "default_shortcuts":
           return settings.shortcuts;
         default:

@@ -4,7 +4,7 @@
 
 <p align="center"><b>Free, local, open-source voice dictation for any app.</b><br>
 Hold a key, speak, let go: clean, punctuated text appears wherever your cursor is.<br>
-No account. No word limits. No subscription. Nothing leaves your computer.</p>
+No account needed. No word limits. No subscription. Nothing leaves your computer.</p>
 
 <p align="center"><sub>Inspired by <img src="src/assets/inspired-by/wispr-flow.svg" height="12" alt="Wispr Flow"> Wispr Flow<br>
 Toolbay Flow is an independent open-source project and is not affiliated with or endorsed by Wispr.</sub></p>
@@ -87,8 +87,10 @@ Every shortcut can be changed in **Shortcuts**, including modifier-only combos.
   voice command, history retention (keep / 24 hours / never), keep recordings for 14 days, delete all. Flow never
   mutes or pauses your music.
 - **Updates itself** quietly when you're not dictating (or through the Toolbay app), and restarts itself after a crash.
-- **Privacy**: no accounts, no servers, no telemetry. The network is only used to download the models and engines you pick,
-  and to reach your own cloud provider if you choose one.
+- **Same Flow on every computer** (optional): sign in with a Toolbay account and your settings, styles, dictionary,
+  snippets, shortcuts and engine choice sync between your Macs and PCs. Recordings and API keys never sync.
+- **Privacy**: no account needed, no telemetry. The network is only used to download the models and engines you pick,
+  to reach your own cloud provider if you choose one, and to sync settings if you sign in.
 
 ## Status
 

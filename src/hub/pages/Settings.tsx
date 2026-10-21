@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, CleanupLevel, DataPolicy, LANGUAGES, Provider } from "../../api";
+import { api, CleanupLevel, on, SyncStatus, DataPolicy, LANGUAGES, Provider } from "../../api";
 import { Page, Row, Section, Toggle, useSettings } from "../ui";
 import { isMac } from "../../keys";
 import Credit from "../Credit";
@@ -132,8 +132,10 @@ export default function SettingsPage() {
         </Row>
       </Section>
 
+      <AccountSync />
+
       <Section title="Data and privacy">
-        <Row title="History" desc="Where your dictations are kept. Everything stays on this computer either way.">
+        <Row title="History" desc="How long your dictations are kept on this computer.">
           <select value={s.data_policy} onChange={(e) => save({ data_policy: e.target.value as DataPolicy })}>
             <option value="store_normally">Keep history</option>
             <option value="delete_after24h">Delete after 24 hours</option>
@@ -159,7 +161,7 @@ export default function SettingsPage() {
             </button>
           )}
         </Row>
-        <Row title="No telemetry" desc="Flow sends nothing anywhere. The only network use is downloading models you choose, and your own API provider if you pick one." />
+        <Row title="No telemetry" desc="Flow never sends usage data. It only goes online to download models, to reach your own API provider if you pick one, and to sync your settings with your Toolbay account when you're signed in." />
       </Section>
 
       <Section title="About">
@@ -183,6 +185,126 @@ export default function SettingsPage() {
         <Credit />
       </footer>
     </Page>
+  );
+}
+
+function ago(iso: string | null) {
+  if (!iso) return "";
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  return new Date(iso).toLocaleString();
+}
+
+/** Toolbay account: settings, dictionary and snippets follow you to every computer. */
+function AccountSync() {
+  const [s, save] = useSettings();
+  const [st, setSt] = useState<SyncStatus | null>(null);
+  const [waiting, setWaiting] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    api.syncStatus().then(setSt);
+    const off = on<SyncStatus>("sync-status", (x) => {
+      setSt(x);
+      if (x.account) setWaiting(false);
+    });
+    const focus = () => api.syncNow().then(setSt);
+    window.addEventListener("focus", focus);
+    return () => {
+      off();
+      window.removeEventListener("focus", focus);
+    };
+  }, []);
+  if (!s || !st) return null;
+  const who = st.account ? st.account.name || (st.account.handle ? `@${st.account.handle}` : "your Toolbay account") : "";
+  const signIn = () => {
+    setErr("");
+    setWaiting(true);
+    api.syncSignIn().catch((e) => {
+      setWaiting(false);
+      setErr(String(e));
+    });
+  };
+  return (
+    <Section title="Toolbay account">
+      {!st.account && st.state !== "offline" ? (
+        <Row
+          title="Use Flow the same way on all your computers"
+          desc={
+            err ||
+            (waiting
+              ? "Finish signing in in your browser. Flow picks it up by itself."
+              : "Sign in once with your Toolbay account and your settings, styles, dictionary, snippets and shortcuts follow you to every Mac and PC. Optional: Flow works fully without it.")
+          }
+        >
+          <button className="btn primary" onClick={signIn} disabled={waiting}>
+            {waiting ? "Waiting…" : "Sign in"}
+          </button>
+        </Row>
+      ) : (
+        <>
+          <Row
+            title={who ? `Signed in as ${who}` : "Toolbay account"}
+            desc={
+              !s.sync_enabled
+                ? "Sync is off on this computer."
+                : st.message ||
+                  (st.state === "syncing"
+                    ? "Syncing…"
+                    : st.synced_at
+                      ? `Up to date, synced ${ago(st.synced_at)}.${st.pending ? ` ${st.pending} change${st.pending > 1 ? "s" : ""} waiting.` : ""}`
+                      : "Getting ready to sync…")
+            }
+          >
+            {s.sync_enabled && (
+              <button className="link" onClick={() => api.syncNow().then(setSt)}>
+                Sync now
+              </button>
+            )}
+          </Row>
+          <Row
+            title="Sync across my computers"
+            desc="Settings, styles, dictionary, snippets, shortcuts and engine choice. Your API keys and recordings never leave this computer."
+          >
+            <Toggle on={s.sync_enabled} onChange={(v) => save({ sync_enabled: v })} />
+          </Row>
+          {s.sync_enabled && (
+            <Row title="Also sync my recent dictations" desc="Your last 50 dictations (text only, never audio) show up on your other computers too.">
+              <Toggle on={s.sync_history} onChange={(v) => save({ sync_history: v })} />
+            </Row>
+          )}
+          <Row title="Remove synced copy" desc="Deletes Flow's settings from your Toolbay account and turns sync off here. Everything stays on this computer.">
+            {confirm ? (
+              <>
+                <button
+                  className="btn danger"
+                  onClick={() =>
+                    api
+                      .syncDeleteRemote()
+                      .then(() => setConfirm(false))
+                      .catch((e) => {
+                        setConfirm(false);
+                        setErr(String(e));
+                      })
+                  }
+                >
+                  Remove
+                </button>
+                <button className="link" onClick={() => setConfirm(false)}>
+                  Keep it
+                </button>
+              </>
+            ) : (
+              <button className="btn" onClick={() => setConfirm(true)}>
+                Remove…
+              </button>
+            )}
+          </Row>
+          {err && <div className="pad-row muted small">{err}</div>}
+        </>
+      )}
+    </Section>
   );
 }
 

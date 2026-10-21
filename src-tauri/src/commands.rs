@@ -317,6 +317,56 @@ pub async fn toolbay_account() -> Option<crate::hub::Account> {
     crate::hub::account().await
 }
 
+#[tauri::command]
+pub fn sync_status() -> crate::sync::Status {
+    crate::sync::flow::get().map(|s| s.status()).unwrap_or_default()
+}
+
+#[tauri::command]
+pub async fn sync_now() -> crate::sync::Status {
+    let Some(s) = crate::sync::flow::get() else { return Default::default() };
+    s.sync_once().await;
+    s.status()
+}
+
+/// Sign-in belongs to the Toolbay app: this opens toolbay.ai's desktop sign-in,
+/// which hands the result to the Toolbay app. Flow then picks up that sign-in.
+#[tauri::command]
+pub async fn sync_sign_in(app: AppHandle) -> R<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let state = format!("flow-{}", uuid::Uuid::new_v4().simple());
+    app.opener()
+        .open_url(format!("https://toolbay.ai/desktop/auth?state={state}"), None::<&str>)
+        .map_err(|_| "Couldn't open your web browser. Please try again.".to_string())?;
+    tauri::async_runtime::spawn(async {
+        // Watch for the sign-in for a few minutes.
+        for _ in 0..60 {
+            tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+            if let Some(s) = crate::sync::flow::get() {
+                s.sync_once().await;
+                if s.status().account.is_some() {
+                    break;
+                }
+            }
+        }
+    });
+    Ok(())
+}
+
+/// Removes Flow's synced copy from the Toolbay account and stops syncing on this computer.
+#[tauri::command]
+pub async fn sync_delete_remote(st: State<'_, St>) -> R<()> {
+    let st = st.inner().clone();
+    let mut s = st.settings.read().clone();
+    s.sync_enabled = false;
+    dictation::apply_settings(&st, s).map_err(e)?;
+    let _ = st.app.emit("settings-changed", ());
+    let sync = crate::sync::flow::get().ok_or("Sync isn't running.")?;
+    sync.delete_remote().await.map_err(|err| err.to_string())?;
+    sync.sync_once().await;
+    Ok(())
+}
+
 #[derive(Serialize)]
 pub struct MicCheck {
     ok: bool,

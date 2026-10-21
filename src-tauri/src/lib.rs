@@ -16,6 +16,7 @@ mod paste;
 mod selftest;
 mod settings;
 mod sounds;
+mod sync;
 mod textproc;
 
 use dictation::St;
@@ -282,6 +283,7 @@ pub fn run() {
             logging::init(&data_dir);
             let st = dictation::State::new(handle.clone(), config_dir, data_dir)?;
             app.manage(st.clone());
+            sync::flow::start(st.clone());
 
             let s = st.settings.read().clone();
             let hidden = std::env::args().any(|a| a == "--hidden") && s.onboarded;
@@ -367,6 +369,10 @@ pub fn run() {
             commands::open_data_dir,
             commands::quit,
             commands::toolbay_account,
+            commands::sync_status,
+            commands::sync_now,
+            commands::sync_sign_in,
+            commands::sync_delete_remote,
             commands::set_desktop_shortcut,
             commands::has_desktop_shortcut,
             commands::mic_check,

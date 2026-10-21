@@ -108,6 +108,12 @@ impl Db {
             );
             "#,
         )?;
+        // Stable ids so the same entry can be matched on every computer (account sync).
+        for t in ["history", "dictionary"] {
+            let _ = conn.execute(&format!("ALTER TABLE {t} ADD COLUMN sync_id TEXT"), []);
+            let _ = conn.execute(&format!("UPDATE {t} SET sync_id=lower(hex(randomblob(16))) WHERE sync_id IS NULL"), []);
+            let _ = conn.execute(&format!("CREATE UNIQUE INDEX IF NOT EXISTS {t}_sync ON {t}(sync_id)"), []);
+        }
         // Entries left by development builds (the bar page URL pasted as text).
         let _ = conn.execute("DELETE FROM history WHERE text LIKE 'http://localhost:1437/%'", []);
         Ok(Db(Mutex::new(conn)))
@@ -115,10 +121,11 @@ impl Db {
 
     // ---------- history ----------
     pub fn add_history(&self, h: &HistoryItem, audio: Option<&[u8]>) -> Result<i64> {
+        crate::sync::poke();
         let c = self.0.lock();
         c.execute(
-            "INSERT INTO history (created_at, mode, raw_text, text, app, window_title, url, language, duration_ms, latency_ms, words, status, audio)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+            "INSERT INTO history (created_at, mode, raw_text, text, app, window_title, url, language, duration_ms, latency_ms, words, status, audio, sync_id)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,lower(hex(randomblob(16))))",
             params![now(), h.mode, h.raw_text, h.text, h.app, h.window_title, h.url, h.language, h.duration_ms, h.latency_ms, h.words, h.status, audio],
         )?;
         Ok(c.last_insert_rowid())
@@ -134,6 +141,7 @@ impl Db {
     }
 
     pub fn set_edited(&self, id: i64, edited: &str) -> Result<()> {
+        crate::sync::poke();
         self.0.lock().execute("UPDATE history SET edited_text=?2 WHERE id=?1", params![id, edited])?;
         Ok(())
     }
@@ -143,7 +151,7 @@ impl Db {
         let mut st = c.prepare(
             "SELECT id, created_at, mode, raw_text, text, app, window_title, url, language, duration_ms, latency_ms, words, status, audio IS NOT NULL, edited_text
              FROM history WHERE archived=0 AND (?1='' OR text LIKE '%'||?1||'%' OR raw_text LIKE '%'||?1||'%' OR app LIKE '%'||?1||'%')
-             ORDER BY id DESC LIMIT ?2 OFFSET ?3",
+             ORDER BY created_at DESC, id DESC LIMIT ?2 OFFSET ?3",
         )?;
         let rows = st.query_map(params![query, limit, offset], |r| {
             Ok(HistoryItem {
@@ -181,7 +189,7 @@ impl Db {
             .0
             .lock()
             .query_row(
-                "SELECT text FROM history WHERE archived=0 AND text<>'' ORDER BY id DESC LIMIT 1",
+                "SELECT text FROM history WHERE archived=0 AND text<>'' ORDER BY created_at DESC, id DESC LIMIT 1",
                 [],
                 |r| r.get(0),
             )
@@ -189,11 +197,13 @@ impl Db {
     }
 
     pub fn delete_history(&self, id: i64) -> Result<()> {
+        crate::sync::poke();
         self.0.lock().execute("DELETE FROM history WHERE id=?1", params![id])?;
         Ok(())
     }
 
     pub fn clear_history(&self) -> Result<()> {
+        crate::sync::poke();
         let c = self.0.lock();
         c.execute("DELETE FROM history", [])?;
         c.execute_batch("PRAGMA incremental_vacuum;")?;
@@ -243,6 +253,7 @@ impl Db {
     }
 
     pub fn upsert_dict(&self, e: &DictEntry) -> Result<i64> {
+        crate::sync::poke();
         let c = self.0.lock();
         if e.id > 0 {
             c.execute(
@@ -265,13 +276,14 @@ impl Db {
             }
         }
         c.execute(
-            "INSERT INTO dictionary (phrase, replacement, is_snippet, starred, source, created_at) VALUES (?1,?2,?3,?4,?5,?6)",
+            "INSERT INTO dictionary (phrase, replacement, is_snippet, starred, source, created_at, sync_id) VALUES (?1,?2,?3,?4,?5,?6,lower(hex(randomblob(16))))",
             params![e.phrase, e.replacement, e.is_snippet as i64, e.starred as i64, if e.source.is_empty() { "manual" } else { &e.source }, now()],
         )?;
         Ok(c.last_insert_rowid())
     }
 
     pub fn delete_dict(&self, id: i64) -> Result<()> {
+        crate::sync::poke();
         self.0.lock().execute("DELETE FROM dictionary WHERE id=?1", params![id])?;
         Ok(())
     }
@@ -306,6 +318,110 @@ impl Db {
 
     pub fn delete_note(&self, id: i64) -> Result<()> {
         self.0.lock().execute("DELETE FROM notes WHERE id=?1", params![id])?;
+        Ok(())
+    }
+
+    // ---------- account sync ----------
+    /// Dictionary words and snippets as (sync id, entry).
+    pub fn sync_dict(&self) -> Result<Vec<(String, DictEntry)>> {
+        let c = self.0.lock();
+        let mut st = c.prepare("SELECT sync_id, phrase, replacement, is_snippet, starred, source, created_at FROM dictionary")?;
+        let rows = st.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                DictEntry {
+                    phrase: r.get(1)?,
+                    replacement: r.get(2)?,
+                    is_snippet: r.get::<_, i64>(3)? != 0,
+                    starred: r.get::<_, i64>(4)? != 0,
+                    source: r.get(5)?,
+                    created_at: r.get(6)?,
+                    ..Default::default()
+                },
+            ))
+        })?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    /// Writes an entry that came from another computer. A vocabulary word this
+    /// computer already has under another id takes over the incoming id.
+    pub fn sync_put_dict(&self, sid: &str, e: &DictEntry) -> Result<()> {
+        let c = self.0.lock();
+        let existing: Option<i64> = c.query_row("SELECT id FROM dictionary WHERE sync_id=?1", params![sid], |r| r.get(0)).optional()?;
+        let existing = match existing {
+            Some(id) => Some(id),
+            None if !e.is_snippet => c
+                .query_row("SELECT id FROM dictionary WHERE is_snippet=0 AND lower(phrase)=lower(?1)", params![e.phrase], |r| r.get(0))
+                .optional()?,
+            None => None,
+        };
+        match existing {
+            Some(id) => c.execute(
+                "UPDATE dictionary SET phrase=?2, replacement=?3, is_snippet=?4, starred=?5, sync_id=?6 WHERE id=?1",
+                params![id, e.phrase, e.replacement, e.is_snippet as i64, e.starred as i64, sid],
+            )?,
+            None => c.execute(
+                "INSERT INTO dictionary (phrase, replacement, is_snippet, starred, source, created_at, sync_id) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+                params![e.phrase, e.replacement, e.is_snippet as i64, e.starred as i64, if e.source.is_empty() { "manual" } else { &e.source }, if e.created_at.is_empty() { now() } else { e.created_at.clone() }, sid],
+            )?,
+        };
+        Ok(())
+    }
+
+    pub fn sync_delete(&self, table: &str, sid: &str) -> Result<()> {
+        let t = if table == "history" { "history" } else { "dictionary" };
+        self.0.lock().execute(&format!("DELETE FROM {t} WHERE sync_id=?1"), params![sid])?;
+        Ok(())
+    }
+
+    pub fn sync_has(&self, table: &str, sid: &str) -> bool {
+        let t = if table == "history" { "history" } else { "dictionary" };
+        self.0.lock().query_row(&format!("SELECT 1 FROM {t} WHERE sync_id=?1"), params![sid], |_| Ok(())).is_ok()
+    }
+
+    /// The most recent dictations (text only, never audio) as (sync id, item).
+    pub fn sync_history(&self, limit: i64) -> Result<Vec<(String, HistoryItem)>> {
+        let c = self.0.lock();
+        let mut st = c.prepare(
+            "SELECT sync_id, created_at, mode, raw_text, text, app, window_title, language, duration_ms, latency_ms, words, status, edited_text
+             FROM history WHERE archived=0 ORDER BY created_at DESC LIMIT ?1",
+        )?;
+        let rows = st.query_map(params![limit], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                HistoryItem {
+                    created_at: r.get(1)?,
+                    mode: r.get(2)?,
+                    raw_text: r.get(3)?,
+                    text: r.get(4)?,
+                    app: r.get(5)?,
+                    window_title: r.get(6)?,
+                    language: r.get(7)?,
+                    duration_ms: r.get(8)?,
+                    latency_ms: r.get(9)?,
+                    words: r.get(10)?,
+                    status: r.get(11)?,
+                    edited_text: r.get(12)?,
+                    ..Default::default()
+                },
+            ))
+        })?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    pub fn sync_put_history(&self, sid: &str, h: &HistoryItem) -> Result<()> {
+        let c = self.0.lock();
+        let n = c.execute(
+            "UPDATE history SET text=?2, raw_text=?3, edited_text=?4, status=?5, words=?6 WHERE sync_id=?1",
+            params![sid, h.text, h.raw_text, h.edited_text, h.status, h.words],
+        )?;
+        if n == 0 {
+            c.execute(
+                "INSERT INTO history (created_at, mode, raw_text, text, app, window_title, url, language, duration_ms, latency_ms, words, status, edited_text, sync_id)
+                 VALUES (?1,?2,?3,?4,?5,?6,'',?7,?8,?9,?10,?11,?12,?13)",
+                params![h.created_at, h.mode, h.raw_text, h.text, h.app, h.window_title, h.language, h.duration_ms, h.latency_ms, h.words, h.status, h.edited_text, sid],
+            )?;
+        }
         Ok(())
     }
 

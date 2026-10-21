@@ -999,6 +999,12 @@ pub fn apply_settings(st: &St, new: Settings) -> Result<()> {
     if old.data_policy != new.data_policy {
         let _ = st.db.apply_retention(&new.data_policy);
     }
+    if new.sync_history && !old.sync_history {
+        // Pick up dictations other computers already synced.
+        if let Some(s) = crate::sync::flow::get() {
+            s.reread();
+        }
+    }
     {
         use tauri_plugin_autostart::ManagerExt;
         let al = st.app.autolaunch();
