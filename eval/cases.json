@@ -1,0 +1,268 @@
+[
+  {
+    "id": "fillers",
+    "say": "Um, so, like, I was thinking we could, uh, you know, push the launch to next week.",
+    "app": "notepad.exe",
+    "not": [
+      "um",
+      "uh",
+      "you know",
+      "like,"
+    ],
+    "has": [
+      "push the launch to next week"
+    ]
+  },
+  {
+    "id": "backtrack-time",
+    "say": "Let's meet at 3, actually, make that 4.",
+    "app": "notepad.exe",
+    "has": [
+      "4"
+    ],
+    "not": [
+      "3",
+      "actually",
+      "make that"
+    ]
+  },
+  {
+    "id": "backtrack-name",
+    "say": "Send the file to John, sorry, I mean to Jane.",
+    "app": "notepad.exe",
+    "has": [
+      "Jane"
+    ],
+    "not": [
+      "John",
+      "sorry"
+    ]
+  },
+  {
+    "id": "scratch-that",
+    "say": "I'll call you tomorrow. Scratch that. I'll email you tonight.",
+    "app": "notepad.exe",
+    "has": [
+      "email you tonight"
+    ],
+    "not": [
+      "call you",
+      "scratch"
+    ]
+  },
+  {
+    "id": "numbered-list",
+    "say": "My priorities are: one, finish the report. Two, call the client. And three, book the flights.",
+    "app": "notepad.exe",
+    "re": [
+      "\\n\\s*(1[.)]|-)\\s*Finish the report",
+      "\\n\\s*(2[.)]|-)\\s*Call the client",
+      "\\n\\s*(3[.)]|-)\\s*Book the flights"
+    ]
+  },
+  {
+    "id": "bullets",
+    "say": "Grocery list: apples, bananas, bread, and milk.",
+    "app": "notepad.exe",
+    "re": [
+      "\\n\\s*[-•]\\s*Apples",
+      "\\n\\s*[-•]\\s*Milk"
+    ]
+  },
+  {
+    "id": "question-kept",
+    "say": "What is the capital of France?",
+    "app": "chrome.exe",
+    "has": [
+      "capital of France?"
+    ],
+    "not": [
+      "Paris"
+    ]
+  },
+  {
+    "id": "instruction-kept",
+    "say": "Write me a short poem about the ocean.",
+    "app": "chrome.exe",
+    "has": [
+      "poem about the ocean"
+    ],
+    "maxWords": 12
+  },
+  {
+    "id": "numbers",
+    "say": "The meeting is at three thirty PM on March fifth and costs twenty five dollars.",
+    "app": "notepad.exe",
+    "re": [
+      "3:30\\s?(PM|pm|p\\.m\\.)",
+      "March 5",
+      "\\$25"
+    ]
+  },
+  {
+    "id": "email-address",
+    "say": "My email is john dot smith at gmail dot com.",
+    "app": "notepad.exe",
+    "has": [
+      "john.smith@gmail.com"
+    ]
+  },
+  {
+    "id": "url",
+    "say": "You can download it from toolbay dot ai.",
+    "app": "notepad.exe",
+    "has": [
+      "toolbay.ai"
+    ],
+    "not": [
+      "dot ai"
+    ]
+  },
+  {
+    "id": "new-paragraph",
+    "say": "That covers the first point. New paragraph. Now for the second point.",
+    "app": "notepad.exe",
+    "re": [
+      "first point\\.\\s*\\n\\s*\\n\\s*Now for the second point"
+    ]
+  },
+  {
+    "id": "question-mark-cmd",
+    "say": "Is this working question mark",
+    "app": "notepad.exe",
+    "re": [
+      "^Is this working\\?$"
+    ]
+  },
+  {
+    "id": "comma-period-cmd",
+    "say": "Hi team comma quick update colon the build is green period",
+    "app": "notepad.exe",
+    "re": [
+      "Hi team, quick update: the build is green\\."
+    ]
+  },
+  {
+    "id": "stutter",
+    "say": "So the the plan is is good.",
+    "app": "notepad.exe",
+    "has": [
+      "the plan is good"
+    ],
+    "not": [
+      "the the",
+      "is is"
+    ]
+  },
+  {
+    "id": "code-terms",
+    "say": "Run npm install and then npm run dev.",
+    "app": "Code.exe",
+    "has": [
+      "npm install",
+      "npm run dev"
+    ]
+  },
+  {
+    "id": "casual-whatsapp",
+    "say": "Haha yeah that sounds great, see you there.",
+    "app": "WhatsApp.exe",
+    "not": [
+      "Haha yeah that sounds great, see you there."
+    ],
+    "re": [
+      "see you there$"
+    ]
+  },
+  {
+    "id": "short-thanks",
+    "say": "Thanks.",
+    "app": "notepad.exe",
+    "re": [
+      "^Thanks[.!]?$"
+    ]
+  },
+  {
+    "id": "chairs",
+    "say": "We need five, no, six chairs for the meeting.",
+    "app": "notepad.exe",
+    "has": [],
+    "not": [
+      "5 chairs",
+      "five chairs"
+    ],
+    "re": [
+      "(6|six) chairs"
+    ]
+  },
+  {
+    "id": "i-mean",
+    "say": "The price is, I mean, the cost is around two hundred dollars.",
+    "app": "notepad.exe",
+    "has": [
+      "$200"
+    ],
+    "not": [
+      "I mean"
+    ]
+  },
+  {
+    "id": "email-layout",
+    "say": "Hi Dana, thanks for sending the notes over. I will review them tonight and get back to you tomorrow. Best, Orion.",
+    "app": "OUTLOOK.EXE",
+    "re": [
+      "^Hi Dana,\\n\\n",
+      "\\n\\nBest,\\nOrion\\.?$"
+    ]
+  },
+  {
+    "id": "run-on",
+    "say": "So we shipped the new version yesterday and the feedback has been really good people like the speed and they want dark mode next which we can do this week",
+    "app": "notepad.exe",
+    "minSentences": 2,
+    "has": [
+      "dark mode"
+    ]
+  },
+  {
+    "id": "dont-summarize",
+    "say": "First we load the data from the server, then we clean it, then we train the model, and finally we evaluate it on the test set.",
+    "app": "notepad.exe",
+    "has": [
+      "load the data",
+      "clean it",
+      "train the model",
+      "evaluate it"
+    ]
+  },
+  {
+    "id": "apostrophes",
+    "say": "I don't think it's ready, but we're close and they'll love it.",
+    "app": "notepad.exe",
+    "has": [
+      "don't",
+      "it's",
+      "we're",
+      "they'll"
+    ]
+  },
+  {
+    "id": "slack-work",
+    "say": "Hey can you review my PR when you get a chance thanks",
+    "app": "slack.exe",
+    "has": [
+      "review my PR"
+    ],
+    "re": [
+      "\\?|thanks|Thanks"
+    ]
+  },
+  {
+    "id": "two-words",
+    "say": "Sounds good.",
+    "app": "slack.exe",
+    "re": [
+      "^Sounds good[.!]?$"
+    ]
+  }
+]

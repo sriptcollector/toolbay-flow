@@ -9,7 +9,6 @@ use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 static MATCHER: OnceCell<Mutex<Matcher>> = OnceCell::new();
-static WIN_CHORD: Mutex<bool> = Mutex::new(false);
 
 /// Left modifiers become the generic code; right Ctrl/Alt keep their own so they
 /// can be bound alone (see `generic`).
@@ -59,6 +58,9 @@ unsafe extern "system" fn hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRE
         // Ignore only keystrokes Flow itself sends (paste, Start-menu masking);
         // other injected input (AutoHotkey, Stream Deck, remote desktop) still counts.
         let ours = (kb.flags.0 & LLKHF_INJECTED.0) != 0 && kb.dwExtraInfo == super::OWN_INPUT_TAG;
+        if std::env::var_os("TOOLBAY_FLOW_DEBUG_KEYS").is_some() {
+            log::info!("key vk={:#x} msg={:#x} flags={:#x} extra={:#x} ours={}", kb.vkCode, wparam.0, kb.flags.0, kb.dwExtraInfo, ours);
+        }
         if !ours {
             let msg = wparam.0 as u32;
             let is_down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
@@ -70,6 +72,7 @@ unsafe extern "system" fn hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRE
                     if is_down {
                         m.prune_stale(vk, physically_down);
                     }
+                    let was_active = m.has_active();
                     let mut swallow = m.key(vk, is_down);
                     {
                         let mut sw = SWALLOWED.lock();
@@ -83,17 +86,13 @@ unsafe extern "system" fn hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRE
                             }
                         }
                     }
-                    if is_down && m.down.contains(&0x5B) && m.has_active() {
-                        // A chord involving Win is being used by Flow.
-                        *WIN_CHORD.lock() = true;
-                    }
-                    if is_up && vk == 0x5B {
-                        let mut wc = WIN_CHORD.lock();
-                        if *wc {
-                            *wc = false;
-                            drop(m);
-                            mask_win();
-                        }
+                    // A Flow shortcut that includes Alt or Win just fired. Tap a harmless
+                    // key now, while they're still held, so releasing them later doesn't
+                    // open the Start menu or put the app into menu mode (which would
+                    // swallow the paste).
+                    if is_down && !was_active && m.has_active() && m.down.iter().any(|k| matches!(*k, 0x12 | 0xA5 | 0x5B)) {
+                        drop(m);
+                        mask_win();
                     }
                     if swallow {
                         return LRESULT(1);
@@ -111,7 +110,10 @@ pub fn start(shared: Arc<Shared>, sink: Sink) {
         .name("hotkeys".into())
         .spawn(|| unsafe {
             let h = match SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook), None, 0) {
-                Ok(h) => h,
+                Ok(h) => {
+                    log::info!("keyboard hook installed");
+                    h
+                }
                 Err(e) => {
                     log::error!("keyboard hook failed: {e}");
                     return;

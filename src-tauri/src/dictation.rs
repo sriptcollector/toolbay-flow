@@ -283,6 +283,7 @@ pub fn start_hotkeys(st: &St) {
 }
 
 fn on_hotkey(st: &St, ev: HotkeyEvent) {
+    log::info!("hotkey event: {ev:?}");
     let (phase, mode, elapsed, last_tap) = {
         let s = st.session.lock();
         (s.phase, s.mode, s.started.elapsed(), s.last_tap_up)
@@ -608,12 +609,24 @@ fn style_for(s: &Settings, category: &str) -> Style {
 pub async fn format_text(st: &St, raw: &str, ctx: &FocusContext) -> Result<String> {
     let s = st.settings.read().clone();
     let dict: Vec<DictEntry> = [st.db.list_dict(false).unwrap_or_default(), st.db.list_dict(true).unwrap_or_default()].concat();
-    if let Some(sn) = textproc::exact_snippet(raw, &dict) {
-        st.db.bump_dict_use(sn.id);
-        return Ok(sn.replacement.clone().unwrap_or_default());
+    let needs_llm = matches!(s.cleanup_level, CleanupLevel::Medium | CleanupLevel::High) && raw.split_whitespace().count() > 3;
+    let llm = if needs_llm { llm_for(st).await } else { Err(anyhow!("not needed")) };
+    let (text, used) = clean_text(&s, &dict, llm, raw, ctx).await;
+    for id in used {
+        st.db.bump_dict_use(id);
+    }
+    Ok(text)
+}
+
+/// The whole cleanup pipeline, shared by dictation and the self-test: snippets,
+/// rules or the language model, style, dictionary replacements, and joining with
+/// the text already in the field. Returns the text and the dictionary ids used.
+pub async fn clean_text(s: &Settings, dict: &[DictEntry], llm: Result<Llm>, raw: &str, ctx: &FocusContext) -> (String, Vec<i64>) {
+    if let Some(sn) = textproc::exact_snippet(raw, dict) {
+        return (sn.replacement.clone().unwrap_or_default(), vec![sn.id]);
     }
     let category = textproc::app_category(&ctx.exe, &ctx.window_title, &ctx.url, &s.app_categories);
-    let style = style_for(&s, &category);
+    let style = style_for(s, &category);
     let mut used_llm = false;
     let mut text = match s.cleanup_level {
         CleanupLevel::None => raw.trim().to_string(),
@@ -621,7 +634,7 @@ pub async fn format_text(st: &St, raw: &str, ctx: &FocusContext) -> Result<Strin
         // One to three words: rules are instant and an LLM adds nothing.
         CleanupLevel::Medium | CleanupLevel::High if raw.split_whitespace().count() <= 3 => textproc::rule_cleanup(raw, &style),
         CleanupLevel::Medium | CleanupLevel::High => {
-            let vocab = textproc::vocabulary_prompt(&dict, 400);
+            let vocab = textproc::vocabulary_prompt(dict, 400);
             let input = CleanupInput {
                 transcript: raw,
                 level: &s.cleanup_level,
@@ -637,7 +650,7 @@ pub async fn format_text(st: &St, raw: &str, ctx: &FocusContext) -> Result<Strin
             };
             let (system, msgs) = llm::cleanup_messages(&input);
             let max_tokens = (raw.split_whitespace().count() as u32 * 2 + 48).min(1500);
-            let out = match llm_for(st).await {
+            let out = match llm {
                 Ok(l) => l.chat(&system, &msgs, max_tokens, Duration::from_secs(20)).await,
                 Err(e) => Err(e),
             };
@@ -660,12 +673,10 @@ pub async fn format_text(st: &St, raw: &str, ctx: &FocusContext) -> Result<Strin
     if used_llm {
         text = textproc::apply_style(&text, &style);
     }
-    let (t, ids) = textproc::apply_replacements(&text, &dict);
-    let (t, ids2) = textproc::expand_snippets(&t, &dict);
-    for id in ids.into_iter().chain(ids2) {
-        st.db.bump_dict_use(id);
-    }
-    Ok(join_with_context(&t, &ctx.before, used_llm))
+    let (t, mut ids) = textproc::apply_replacements(&text, dict);
+    let (t, ids2) = textproc::expand_snippets(&t, dict);
+    ids.extend(ids2);
+    (join_with_context(&t, &ctx.before, used_llm), ids)
 }
 
 /// Small models sometimes repeat the context text before the answer; drop it.

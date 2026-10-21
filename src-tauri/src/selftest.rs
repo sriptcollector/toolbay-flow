@@ -34,31 +34,16 @@ pub fn run(args: &[String]) -> i32 {
             let raw = llm::transcribe(whisper, audio::to_wav(&padded), "en", "Toolbay").await.unwrap_or_default();
             let raw = textproc::strip_artifacts(&raw);
             let asr_ms = t0.elapsed().as_millis();
-            let category = textproc::app_category(app, app, "", &Default::default());
-            let style: Style = match category.as_str() {
-                "personal" => s.styles.personal.clone(),
-                "work" => s.styles.work.clone(),
-                "email" => s.styles.email.clone(),
-                _ => s.styles.other.clone(),
-            };
-            let input = CleanupInput {
-                transcript: &raw,
-                level: &CleanupLevel::Medium,
-                style: &style,
-                category: &category,
-                app,
-                window_title: "",
-                before: "",
-                after: "",
-                vocabulary: "Toolbay",
-                language: "en",
-                name: "Orion",
-            };
-            let (sys, msgs) = llm::cleanup_messages(&input);
+            let ctx = crate::context::FocusContext { app: app.to_string(), exe: app.to_string(), window_title: app.to_string(), ..Default::default() };
+            let mut settings = Settings::default();
+            settings.cleanup_level = CleanupLevel::Medium;
+            settings.name = "Orion".into();
+            let dict = vec![crate::db::DictEntry { phrase: "Toolbay".into(), ..Default::default() }];
+            let l2 = Llm { provider: LlmProvider::Local, local_base: Some(llama.clone()), cloud: s.cloud_llm.clone(), anthropic: s.anthropic.clone() };
             let t1 = Instant::now();
-            let out = l.chat(&sys, &msgs, 400, Duration::from_secs(30)).await.unwrap_or_default();
-            let ok = llm::plausible(&raw, &out);
-            let text = if ok { textproc::apply_style(&textproc::apply_spoken_punctuation(&out), &style) } else { textproc::rule_cleanup(&raw, &style) };
+            let (text, _) = crate::dictation::clean_text(&settings, &dict, Ok(l2), &raw, &ctx).await;
+            let category = textproc::app_category(app, app, "", &Default::default());
+            let ok = true;
             println!(
                 "{}",
                 serde_json::json!({"file": path, "app": app, "category": category, "raw": raw, "text": text, "llm_used": ok,
