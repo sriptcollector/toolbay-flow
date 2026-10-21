@@ -126,7 +126,7 @@ export default function Hub() {
       <aside className="side">
         <div className="brand">
           <Logo size={28} />
-          <span className="brand-name">Flow</span>
+          <span className="brand-name">Toolbay Flow</span>
         </div>
         <nav>{NAV.map(item)}</nav>
         <div className="side-spacer" />

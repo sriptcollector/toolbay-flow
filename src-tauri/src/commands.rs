@@ -329,23 +329,25 @@ pub async fn sync_now() -> crate::sync::Status {
     s.status()
 }
 
-/// Sign-in belongs to the Toolbay app: this opens toolbay.ai's desktop sign-in,
-/// which hands the result to the Toolbay app. Flow then picks up that sign-in.
+/// Sign-in belongs to the Toolbay app: toolbay://signin asks it to run its own
+/// browser sign-in (or just comes forward if already signed in). Flow then picks
+/// up that sign-in from the keychain.
 #[tauri::command]
 pub async fn sync_sign_in(app: AppHandle) -> R<()> {
     use tauri_plugin_opener::OpenerExt;
-    let state = format!("flow-{}", uuid::Uuid::new_v4().simple());
     app.opener()
-        .open_url(format!("https://toolbay.ai/desktop/auth?state={state}"), None::<&str>)
-        .map_err(|_| "Couldn't open your web browser. Please try again.".to_string())?;
+        .open_url("toolbay://signin", None::<&str>)
+        .map_err(|_| "Sign-in happens in the Toolbay app. Install it from toolbay.ai, sign in there, and Toolbay Flow picks it up.".to_string())?;
     tauri::async_runtime::spawn(async {
         // Watch for the sign-in for a few minutes.
         for _ in 0..60 {
             tokio::time::sleep(std::time::Duration::from_secs(4)).await;
-            if let Some(s) = crate::sync::flow::get() {
-                s.sync_once().await;
-                if s.status().account.is_some() {
-                    break;
+            if crate::sync::signed_in_here() {
+                if let Some(s) = crate::sync::flow::get() {
+                    s.sync_once().await;
+                    if s.status().account.is_some() {
+                        break;
+                    }
                 }
             }
         }

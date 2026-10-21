@@ -124,7 +124,7 @@ impl State {
 pub async fn ensure_whisper(st: &St) -> Result<String> {
     let _g = st.engine_lock.lock().await;
     let use_gpu = st.settings.read().use_gpu;
-    let (model_id, model_path) = crate::models::current_speech_path(st).ok_or_else(|| anyhow!("Flow is still getting its speech model. Try again in a moment."))?;
+    let (model_id, model_path) = crate::models::current_speech_path(st).ok_or_else(|| anyhow!("Toolbay Flow is still getting its speech model. Try again in a moment."))?;
     // Prefer the GPU engine once it is downloaded; until then use the bundled CPU one.
     let mut eng = engines::pick_engine("whisper", use_gpu).ok_or_else(|| anyhow!("No speech engine for this platform"))?;
     let mut exe = st.paths.engine_exe(eng).or_else(|| crate::models::bundled_engine_exe(st, eng));
@@ -372,7 +372,7 @@ pub fn start(st: &St, mode: Mode) {
     let s = st.settings.read().clone();
     let cloud = s.engine == "cloud" && !s.cloud_asr.api_key.is_empty();
     if !cloud && crate::models::current_speech_path(st).is_none() {
-        st.bar("notice", None, Some("Flow is still getting ready. Try again in a moment.".into()));
+        st.bar("notice", None, Some("Toolbay Flow is still getting ready. Try again in a moment.".into()));
         return;
     }
     let ctx_slot: Arc<Mutex<Option<FocusContext>>> = Arc::new(Mutex::new(None));
@@ -568,7 +568,7 @@ pub fn stop(st: &St) {
 fn friendly_err(e: &anyhow::Error) -> String {
     let s = format!("{e:#}").to_lowercase();
     if s.contains("connect") || s.contains("engine did not become ready") || s.contains("timed out") {
-        "Flow's speech engine is restarting. Try again in a few seconds.".into()
+        "Toolbay Flow's speech engine is restarting. Try again in a few seconds.".into()
     } else if s.contains("microphone") {
         format!("{e}")
     } else if s.contains("api key") || s.contains("401") || s.contains("403") {

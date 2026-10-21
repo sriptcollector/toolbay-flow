@@ -198,7 +198,7 @@ fn tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     }
     let shortcuts = MenuItem::with_id(app, "shortcuts", "Shortcuts…", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
-    let bar = CheckMenuItem::with_id(app, "toggle_bar", "Show Flow bar", true, s.show_bar, None::<&str>)?;
+    let bar = CheckMenuItem::with_id(app, "toggle_bar", "Show dictation bar", true, s.show_bar, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Toolbay Flow", true, None::<&str>)?;
     Menu::with_items(
         app,

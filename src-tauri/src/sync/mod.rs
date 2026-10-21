@@ -128,6 +128,11 @@ fn tokens() -> Vec<String> {
     v
 }
 
+/// A Toolbay sign-in exists on this computer (no network).
+pub fn signed_in_here() -> bool {
+    !tokens().is_empty()
+}
+
 /// The signed-in user (`/api/v1/me`) and the token that works, if any.
 pub async fn account() -> Result<Option<(String, Value)>> {
     let mut offline = None;

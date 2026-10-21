@@ -32,17 +32,17 @@ export default function SettingsPage() {
             <option value="system">Match my computer</option>
           </select>
         </Row>
-        <Row title="Launch at login" desc="Start Flow quietly in the tray when you sign in.">
+        <Row title="Launch at login" desc="Start Toolbay Flow quietly in the tray when you sign in.">
           <Toggle on={s.launch_at_login} onChange={(v) => save({ launch_at_login: v })} />
         </Row>
         <ShortcutToggle />
-        <Row title="Show the Flow bar" desc="The small pill at the bottom of your screen.">
+        <Row title="Show the dictation bar" desc="The small pill at the bottom of your screen.">
           <Toggle on={s.show_bar} onChange={(v) => save({ show_bar: v })} />
         </Row>
         <Row title="Sounds" desc="Short tones when dictation starts and stops.">
           <Toggle on={s.sounds} onChange={(v) => save({ sounds: v })} />
         </Row>
-        <Row title="Keep my clipboard" desc="Put back what was on the clipboard after Flow pastes.">
+        <Row title="Keep my clipboard" desc="Put back what was on the clipboard after Toolbay Flow pastes.">
           <Toggle on={s.restore_clipboard} onChange={(v) => save({ restore_clipboard: v })} />
         </Row>
         <Row title="Your name" desc="Used to sign emails you dictate.">
@@ -114,7 +114,7 @@ export default function SettingsPage() {
             </label>
           </div>
         )}
-        <Row title="Context awareness" desc="Read the text around your cursor in the focused app so Flow continues it naturally. Never reads password fields. Stays on this computer.">
+        <Row title="Context awareness" desc="Read the text around your cursor in the focused app so Toolbay Flow continues it naturally. Never reads password fields. Stays on this computer.">
           <Toggle on={s.context_awareness} onChange={(v) => save({ context_awareness: v })} />
         </Row>
         <Row title="Command mode" desc="Hold the command shortcut to edit selected text by voice, or to ask for a reply.">
@@ -168,7 +168,7 @@ export default function SettingsPage() {
             </button>
           )}
         </Row>
-        <Row title="No telemetry" desc="Flow never sends usage data. It only goes online to download models, to reach your own API provider if you pick one, and to sync your settings with your Toolbay account when you're signed in." />
+        <Row title="No telemetry" desc="Toolbay Flow never sends usage data. It only goes online to download models, to reach your own API provider if you pick one, and to sync your settings with your Toolbay account when you're signed in." />
       </Section>
 
       <Section title="About">
@@ -182,7 +182,7 @@ export default function SettingsPage() {
             Start setup
           </button>
         </Row>
-        <Row title="Quit Flow" desc="Closing this window keeps Flow running in the tray.">
+        <Row title="Quit Toolbay Flow" desc="Closing this window keeps Toolbay Flow running in the tray.">
           <button className="btn" onClick={() => api.quit()}>
             Quit
           </button>
@@ -237,12 +237,12 @@ function AccountSync() {
     <Section title="Toolbay account">
       {!st.account && st.state !== "offline" ? (
         <Row
-          title="Use Flow the same way on all your computers"
+          title="Use Toolbay Flow the same way on all your computers"
           desc={
             err ||
             (waiting
-              ? "Finish signing in in your browser. Flow picks it up by itself."
-              : "Sign in once with your Toolbay account and your settings, styles, dictionary, snippets and shortcuts follow you to every Mac and PC. Optional: Flow works fully without it.")
+              ? "Finish signing in with the Toolbay app. Toolbay Flow picks it up by itself."
+              : "Sign in once with your Toolbay account and your settings, styles, dictionary, snippets and shortcuts follow you to every Mac and PC. Optional: Toolbay Flow works fully without it.")
           }
         >
           <button className="btn primary" onClick={signIn} disabled={waiting}>
@@ -281,7 +281,7 @@ function AccountSync() {
               <Toggle on={s.sync_history} onChange={(v) => save({ sync_history: v })} />
             </Row>
           )}
-          <Row title="Remove synced copy" desc="Deletes Flow's settings from your Toolbay account and turns sync off here. Everything stays on this computer.">
+          <Row title="Remove synced copy" desc="Deletes Toolbay Flow's settings from your Toolbay account and turns sync off here. Everything stays on this computer.">
             {confirm ? (
               <>
                 <button

@@ -9,7 +9,7 @@ export default function Transforms() {
     save({ transforms: t });
   };
   return (
-    <Page title="Transforms" sub="Highlight text in any app, press a transform shortcut, and Flow rewrites it in place.">
+    <Page title="Transforms" sub="Highlight text in any app, press a transform shortcut, and Toolbay Flow rewrites it in place.">
       {s.transforms.map((t, i) => {
         const sc = s.shortcuts.find((x) => x.action === (`transform${i + 1}` as Action));
         return (

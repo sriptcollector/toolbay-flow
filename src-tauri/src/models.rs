@@ -246,7 +246,7 @@ pub fn auto_setup(st: &St) {
             }
             Err(e) => {
                 log::warn!("model upgrade failed: {e:#}");
-                emit(false, "Couldn't download the better models yet. Flow keeps working and will retry when you're online.".into());
+                emit(false, "Couldn't download the better models yet. Toolbay Flow keeps working and will retry when you're online.".into());
             }
         }
     });

@@ -49,7 +49,7 @@ export default function Snippets() {
       <section className="hero night">
         <h2>Say it once, type it never</h2>
         <p>
-          Save the things you type over and over: emails, links, addresses, sign-offs. <b>Say the cue and Flow writes the whole thing.</b>
+          Save the things you type over and over: emails, links, addresses, sign-offs. <b>Say the cue and Toolbay Flow writes the whole thing.</b>
         </p>
         <div className="snip-examples">
           {EXAMPLES.map(([cue, text]) => (

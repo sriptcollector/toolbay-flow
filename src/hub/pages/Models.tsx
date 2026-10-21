@@ -120,7 +120,7 @@ export default function Models() {
       });
 
   return (
-    <Page title="Models" sub="Flow picks the AI models for this computer by itself, so dictation stays instant. Everything runs on this computer.">
+    <Page title="Models" sub="Toolbay Flow picks the AI models for this computer by itself, so dictation stays instant. Everything runs on this computer.">
       {err && <div className="alert">{err}</div>}
       <EngineChoice />
       <Section>
@@ -136,8 +136,8 @@ export default function Models() {
           }
           desc={
             s.model_mode === "auto"
-              ? `Chosen for ${s.auto_reason || auto?.choice.why || "this computer"}. Flow re-checks when your hardware changes and steps down if dictation gets slow.`
-              : "You picked the models yourself. Switch back to Auto to let Flow choose."
+              ? `Chosen for ${s.auto_reason || auto?.choice.why || "this computer"}. Toolbay Flow re-checks when your hardware changes and steps down if dictation gets slow.`
+              : "You picked the models yourself. Switch back to Auto to let Toolbay Flow choose."
           }
         >
           {s.model_mode === "manual" ? (

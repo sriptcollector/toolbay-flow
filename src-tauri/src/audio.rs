@@ -151,7 +151,7 @@ impl Recorder {
                         err_fn,
                         None,
                     )?,
-                    f => return Err(anyhow!("This microphone uses a format Flow can't read ({f:?}). Pick another one in Settings.")),
+                    f => return Err(anyhow!("This microphone uses a format Toolbay Flow can't read ({f:?}). Pick another one in Settings.")),
                 };
                 stream.play()?;
                 Ok(stream)

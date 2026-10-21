@@ -51,8 +51,8 @@ export default function Dictionary() {
         onChange={setTab}
       />
       <section className="hero amber">
-        <h2>Teach Flow your words</h2>
-        <p>Names, product terms and jargon you use. Flow spells them your way every time, and they help it hear them right. It also learns new ones when you correct a word.</p>
+        <h2>Teach Toolbay Flow your words</h2>
+        <p>Names, product terms and jargon you use. Toolbay Flow spells them your way every time, and they help it hear them right. It also learns new ones when you correct a word.</p>
         <div className="hero-actions">
           <button className="btn primary dark-solid" onClick={() => open()}>
             Add a new word
@@ -100,7 +100,7 @@ export default function Dictionary() {
 
       {settings && (
         <Section>
-          <Row title="Learn from my corrections" desc="When you fix a word right after pasting, Flow adds the correct spelling here. You can undo it from the bar.">
+          <Row title="Learn from my corrections" desc="When you fix a word right after pasting, Toolbay Flow adds the correct spelling here. You can undo it from the bar.">
             <Toggle on={settings.auto_learn_words} onChange={(v) => save({ auto_learn_words: v })} />
           </Row>
         </Section>
@@ -123,7 +123,7 @@ export default function Dictionary() {
         >
           {adding.rule && (
             <label>
-              When Flow hears
+              When Toolbay Flow hears
               <input value={adding.from} placeholder="tool bay" onChange={(e) => setAdding({ ...adding, from: e.target.value })} />
             </label>
           )}

@@ -46,7 +46,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
     <div className="ob">
       <TitleBar>
         <Logo size={24} />
-        <span className="ob-brand">Flow</span>
+        <span className="ob-brand">Toolbay Flow</span>
       </TitleBar>
       <div className="ob-top">
         <div className="ob-steps">
@@ -126,9 +126,10 @@ function useProfile() {
 function Welcome({ next }: { next: () => void }) {
   return (
     <div className="ob-card welcome">
-      <h1 className="display">Talk. It types.</h1>
+      <Logo size={44} />
+      <h1 className="display">Welcome to Toolbay Flow</h1>
       <p className="lead">
-        Flow turns what you say into clean, punctuated text in any app: email, chat, docs, code, AI prompts. It runs on this computer, it's free, and the code is
+        Toolbay Flow turns what you say into clean, punctuated text in any app: email, chat, docs, code, AI prompts. It runs on this computer, it's free, and the code is
         open.
       </p>
       <ul className="ticks">
@@ -147,10 +148,10 @@ function AboutYou({ next, back }: StepProps) {
   return (
     <div className="ob-card wide">
       <h1>Tell us about yourself</h1>
-      <p>This helps Flow pick good defaults. It stays on this computer.</p>
+      <p>This helps Toolbay Flow pick good defaults. It stays on this computer.</p>
       <h4>What do you do for work?</h4>
       <Chips options={ROLES.map((r) => [r, r])} value={p.role ?? []} onChange={(v) => set({ role: v })} />
-      <h4>Where did you hear about Flow?</h4>
+      <h4>Where did you hear about Toolbay Flow?</h4>
       <Chips options={HEARD.map((r) => [r, r])} value={p.heard ?? []} onChange={(v) => set({ heard: v })} />
       <Nav
         back={back}
@@ -191,7 +192,7 @@ function Privacy({ next, back }: StepProps) {
   return (
     <div className="ob-card">
       <h1>Your voice stays on this computer</h1>
-      <p>Speech recognition and cleanup run on your own computer with open models. Flow has no servers, no account and no analytics.</p>
+      <p>Speech recognition and cleanup run on your own computer with open models. Toolbay Flow has no servers, no account and no analytics.</p>
       <div className="card">
         <div className="row">
           <div className="row-text">
@@ -242,20 +243,20 @@ function Permissions({ next, back }: StepProps) {
   }, []);
   return (
     <div className="ob-card wide">
-      <h1>Allow Flow to hear you and type for you</h1>
+      <h1>Allow Toolbay Flow to hear you and type for you</h1>
       <p>{isMac ? "macOS asks you to allow these once. Click each button, then switch Toolbay Flow on in the window that opens." : "Windows needs to let apps use your microphone."}</p>
       <div className="perms">
         <PermCard
           icon="🎙️"
           title="Microphone"
-          desc={mic && !mic.ok ? mic.message : "So Flow can hear you while you hold the key."}
+          desc={mic && !mic.ok ? mic.message : "So Toolbay Flow can hear you while you hold the key."}
           ok={mic?.ok ?? null}
           action="Open settings"
           onAction={() => api.openSystemSettings("microphone")}
         />
         {isMac && (
           <>
-            <PermCard icon="⌨️" title="Accessibility" desc="So Flow can type the text into the app you're using." ok={null} action="Open settings" onAction={() => api.openSystemSettings("accessibility")} />
+            <PermCard icon="⌨️" title="Accessibility" desc="So Toolbay Flow can type the text into the app you're using." ok={null} action="Open settings" onAction={() => api.openSystemSettings("accessibility")} />
             <PermCard icon="🔑" title="Input Monitoring" desc="So your dictation shortcut works in every app." ok={null} action="Open settings" onAction={() => api.openSystemSettings("input")} />
           </>
         )}
@@ -337,7 +338,7 @@ function Language({ next, back }: StepProps) {
   return (
     <div className="ob-card wide">
       <h1>Which language do you speak?</h1>
-      <p>Pick one for the best accuracy, or let Flow detect it every time.</p>
+      <p>Pick one for the best accuracy, or let Toolbay Flow detect it every time.</p>
       <div className="langs">
         {LANGUAGES.slice(0, 30).map(([c, n]) => (
           <button key={c} className={s.language === c ? "sel" : ""} onClick={() => save({ language: c }).then(() => api.rerunAuto())}>
@@ -479,7 +480,7 @@ function YourStyle({ next, back }: StepProps) {
   return (
     <div className="ob-card wide">
       <h1>How should you sound?</h1>
-      <p>Flow adjusts to the app you're in. Change this any time under Style. Styles apply to English.</p>
+      <p>Toolbay Flow adjusts to the app you're in. Change this any time under Style. Styles apply to English.</p>
       {rows.map(([k, label]) => (
         <div key={k} className="style-pick">
           <b>{label}</b>
@@ -498,7 +499,7 @@ function Done({ back, finish }: { back: () => void; finish: () => void }) {
   return (
     <div className="ob-card">
       <h1>You're all set</h1>
-      <p>Flow lives in your tray and in the small bar at the bottom of your screen.</p>
+      <p>Toolbay Flow lives in your tray and in the small bar at the bottom of your screen.</p>
       <div className="card summary">
         <div className="row">
           <span>Dictate</span>
@@ -517,7 +518,7 @@ function Done({ back, finish }: { back: () => void; finish: () => void }) {
           <Keys keys={k("paste_last")} />
         </div>
       </div>
-      <Nav back={back} next={finish} nextLabel="Start using Flow" />
+      <Nav back={back} next={finish} nextLabel="Start using Toolbay Flow" />
     </div>
   );
 }
