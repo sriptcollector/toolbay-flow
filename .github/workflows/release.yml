@@ -163,7 +163,10 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "/Applications/Toolbay Flow.app"
           if xattr -p com.apple.quarantine "/Applications/Toolbay Flow.app" 2>/dev/null; then echo "installed app is quarantined"; exit 1; fi
           echo "Installed app is clean."
-          gh release upload "$GITHUB_REF_NAME" "$out" --clobber
+          # Same file under a fixed name, so .../releases/latest/download/Toolbay.Flow_<arch>.pkg
+          # always points at the newest version.
+          cp "$out" "Toolbay.Flow_${arch}.pkg"
+          gh release upload "$GITHUB_REF_NAME" "$out" "Toolbay.Flow_${arch}.pkg" --clobber
 
   manifest:
     # toolbay.json for the Toolbay hub, with the real size and sha256 of each installer.
@@ -181,6 +184,9 @@ jobs:
           gh release download "${{ github.ref_name }}" -D assets -p "*.exe" -p "*.dmg"
           node scripts/manifest.mjs assets toolbay.json
           gh release upload "${{ github.ref_name }}" toolbay.json --clobber
+          # Fixed-name Windows installer for .../releases/latest/download/Toolbay.Flow_x64-setup.exe
+          cp assets/*_x64-setup.exe Toolbay.Flow_x64-setup.exe
+          gh release upload "${{ github.ref_name }}" Toolbay.Flow_x64-setup.exe --clobber
 
   # whisper.cpp has no official macOS server binary, so build one with Metal and
   # attach it to the fixed "engines-v1" release (bundled into the Mac app at build time).
