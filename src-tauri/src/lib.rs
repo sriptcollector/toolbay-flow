@@ -402,6 +402,7 @@ pub fn run() {
             commands::mic_check,
             commands::open_system_settings,
             commands::mac_permissions,
+            commands::restart_app,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Toolbay Flow")

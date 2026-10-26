@@ -3,6 +3,7 @@ import { MessageSquareHeart, Mic, ChartColumnBig, BookA, Scissors, Type, WandSpa
 import { api, on } from "../api";
 import { Toaster, useSettings } from "./ui";
 import Onboarding from "./Onboarding";
+import { askedThisRun, clearPermissionResume, markPermissionAsked, resumedFrom } from "./permResume";
 import Feedback from "./Feedback";
 import Home from "./pages/Home";
 import Insights from "./pages/Insights";
@@ -164,15 +165,38 @@ export default function Hub() {
 function MacPermissionAlert() {
   const [settings] = useSettings();
   const [p, setP] = useState<{ accessibility: boolean; input: boolean; fn_free: boolean } | null>(null);
+  const [resumed] = useState(() => resumedFrom() === "app");
+  const [asked, setAsked] = useState(askedThisRun);
+  const [thanks, setThanks] = useState(false);
   useEffect(() => {
     const check = () => api.macPermissions().then(setP).catch(() => {});
     check();
     const t = setInterval(check, 2000);
     return () => clearInterval(t);
   }, []);
+  const ok = !!p && p.accessibility && p.input;
+  useEffect(() => {
+    if (!resumed || !ok) return;
+    clearPermissionResume();
+    setThanks(true);
+    const t = setTimeout(() => setThanks(false), 8000);
+    return () => clearTimeout(t);
+  }, [resumed, ok]);
   if (!p) return null;
+  const allow = (kind: string) => {
+    markPermissionAsked("app");
+    setAsked(true);
+    api.openSystemSettings(kind);
+  };
   const usesFn = settings?.shortcuts.some((s) => s.keys.includes(63)) ?? false;
-  if (p.accessibility && p.input) {
+  if (ok && thanks) {
+    return (
+      <div className="perm-result ok" role="status">
+        Restarted. Toolbay Flow can now hear your shortcut and type for you.
+      </div>
+    );
+  }
+  if (ok) {
     if (!usesFn || p.fn_free) return null;
     return (
       <div className="perm-alert" role="alert">
@@ -190,15 +214,26 @@ function MacPermissionAlert() {
     <div className="perm-alert" role="alert">
       <div>
         <b>Your shortcut won't work until macOS allows Toolbay Flow</b>
-        <span>Click each button, then switch Toolbay Flow on in the window that opens.</span>
+        <span>
+          {resumed
+            ? "Restarted, but macOS still has one off. Switch Toolbay Flow on for it, then restart again."
+            : asked
+              ? "Switched it on? macOS applies it after Toolbay Flow restarts. You'll come right back here."
+              : "Click each button, then switch Toolbay Flow on in the window that opens."}
+        </span>
       </div>
+      {(asked || resumed) && (
+        <button className="btn" onClick={() => api.restartApp()}>
+          Restart Toolbay Flow
+        </button>
+      )}
       {!p.accessibility && (
-        <button className="btn" onClick={() => api.openSystemSettings("accessibility")}>
+        <button className="btn" onClick={() => allow("accessibility")}>
           Allow Accessibility
         </button>
       )}
       {!p.input && (
-        <button className="btn" onClick={() => api.openSystemSettings("input")}>
+        <button className="btn" onClick={() => allow("input")}>
           Allow Input Monitoring
         </button>
       )}

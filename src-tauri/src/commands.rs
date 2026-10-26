@@ -490,6 +490,12 @@ pub fn mac_permissions() -> MacPermissions {
     }
 }
 
+/// Restart Flow (macOS applies a newly allowed permission on the next start).
+#[tauri::command]
+pub fn restart_app(app: AppHandle) {
+    app.restart();
+}
+
 /// Opens the right page of the OS privacy settings. On macOS it first asks for the permission,
 /// which is what adds Toolbay Flow to the list on that page.
 #[tauri::command]

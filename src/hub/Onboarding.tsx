@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { api, LANGUAGES, on, Style } from "../api";
 import { comboLabel, isMac } from "../keys";
+import { askedThisRun, clearPermissionResume, markPermissionAsked, resumedFrom } from "./permResume";
 import Credit from "./Credit";
 import { Logo, TitleBar, useTheme } from "./Hub";
 import { ActiveDownload, useModelStatus } from "./pages/Models";
@@ -30,7 +31,8 @@ const USES: [string, string][] = [
 ];
 
 export default function Onboarding({ onDone }: { onDone: () => void }) {
-  const [step, setStep] = useState(0);
+  // Back on the permissions step after a restart for a permission (see permResume.ts).
+  const [step, setStep] = useState(() => (resumedFrom() === "setup" ? 4 : 0));
   const [s, save] = useSettings();
   useTheme(s?.appearance);
   if (!s) return null;
@@ -236,6 +238,17 @@ function PermCard({ icon, title, desc, ok, action, onAction }: { icon: string; t
 function Permissions({ next, back }: StepProps) {
   const [mic, setMic] = useState<{ ok: boolean; message: string } | null>(null);
   const [mac, setMac] = useState<{ accessibility: boolean; input: boolean } | null>(null);
+  const [resumed] = useState(() => resumedFrom() === "setup");
+  const [asked, setAsked] = useState(askedThisRun);
+  const allow = (kind: string) => {
+    markPermissionAsked("setup");
+    setAsked(true);
+    api.openSystemSettings(kind);
+  };
+  const macOk = !isMac || (mac?.accessibility && mac?.input);
+  useEffect(() => {
+    if (resumed && macOk) clearPermissionResume();
+  }, [resumed, macOk]);
   useEffect(() => {
     const check = () => {
       api.micCheck().then(setMic);
@@ -260,11 +273,26 @@ function Permissions({ next, back }: StepProps) {
         />
         {isMac && (
           <>
-            <PermCard icon="⌨️" title="Accessibility" desc="So Toolbay Flow can type the text into the app you're using." ok={mac?.accessibility ?? null} action="Allow" onAction={() => api.openSystemSettings("accessibility")} />
-            <PermCard icon="🔑" title="Input Monitoring" desc="So your dictation shortcut works in every app." ok={mac?.input ?? null} action="Allow" onAction={() => api.openSystemSettings("input")} />
+            <PermCard icon="⌨️" title="Accessibility" desc="So Toolbay Flow can type the text into the app you're using." ok={mac?.accessibility ?? null} action="Allow" onAction={() => allow("accessibility")} />
+            <PermCard icon="🔑" title="Input Monitoring" desc="So your dictation shortcut works in every app." ok={mac?.input ?? null} action="Allow" onAction={() => allow("input")} />
           </>
         )}
       </div>
+      {isMac && mac && resumed && (
+        <div className={`perm-result ${macOk ? "ok" : ""}`} role="status">
+          {macOk
+            ? "Restarted. Both permissions are on, so your shortcut works now."
+            : "Restarted, but macOS still has a permission off. Switch Toolbay Flow on for the one that isn't Allowed, then restart again."}
+        </div>
+      )}
+      {isMac && mac && !macOk && asked && (
+        <div className="perm-restart">
+          <span>Switched them on? macOS applies them after Toolbay Flow restarts. You'll come right back here.</span>
+          <button className="btn" onClick={() => api.restartApp()}>
+            Restart Toolbay Flow
+          </button>
+        </div>
+      )}
       {isMac && (
         <div className="howto">
           <div className="howto-pic">

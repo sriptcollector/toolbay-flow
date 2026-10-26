@@ -1,13 +1,16 @@
-/* Base, window chrome, layout and primitives. Sizes follow the original app at 1x:
-   48px title bar, 216px sidebar (60 collapsed), a rounded content panel with 50px padding. */
+/* Base, window chrome, layout and primitives. Compact, square-cornered layout:
+   40px title bar, 196px sidebar (52 collapsed), a square content panel with ~30px padding.
+   Motion is kept short (<= 120ms) so the UI feels instant. */
 :root {
   color: var(--ink);
   background: var(--bg);
   font-family: var(--font);
-  font-size: 15px;
-  line-height: 1.45;
+  font-size: 14px;
+  line-height: 1.4;
   font-feature-settings: "salt" on;
   -webkit-font-smoothing: antialiased;
+  --t-fast: 80ms;
+  --t-med: 110ms;
 }
 * {
   box-sizing: border-box;
@@ -43,20 +46,25 @@ select,
 textarea {
   border: 1px solid var(--line-strong);
   background: var(--card);
-  border-radius: 8px;
-  padding: 8px 12px;
+  border-radius: 0;
+  padding: 5px 9px;
+  min-height: 30px;
   outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color var(--t-fast);
 }
 input:focus,
 select:focus,
 textarea:focus {
   border-color: var(--vast-700);
-  box-shadow: 0 0 0 3px var(--focus);
+  box-shadow: 0 0 0 2px var(--focus);
+}
+input[type="checkbox"],
+input[type="radio"] {
+  min-height: 0;
 }
 textarea {
   resize: vertical;
-  line-height: 1.5;
+  line-height: 1.45;
 }
 ::selection {
   background: var(--lavender);
@@ -70,42 +78,42 @@ textarea {
 /* ---------- window chrome ---------- */
 .hub {
   display: grid;
-  grid-template-columns: 216px 1fr;
-  grid-template-rows: 48px 1fr;
+  grid-template-columns: 196px 1fr;
+  grid-template-rows: 40px 1fr;
   height: 100vh;
   background: var(--bg);
-  transition: grid-template-columns 0.2s cubic-bezier(0.05, 0.6, 0.4, 0.95);
+  transition: grid-template-columns var(--t-med) ease-out;
 }
 .hub.collapsed {
-  grid-template-columns: 60px 1fr;
+  grid-template-columns: 52px 1fr;
 }
 .titlebar {
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 0 0 18px;
+  gap: 2px;
+  padding: 0 0 0 12px;
   user-select: none;
 }
 .mac .titlebar {
-  padding-left: 84px; /* traffic lights */
+  padding-left: 80px; /* traffic lights */
 }
 .tb-btn {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   border: none;
   background: none;
-  border-radius: 8px;
+  border-radius: 0;
   color: var(--vast-800);
 }
 [data-theme="dark"] .tb-btn {
   color: var(--ink-2);
 }
 .tb-btn svg {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
 }
 .tb-btn:hover {
   background: var(--fill);
@@ -119,7 +127,7 @@ textarea {
   align-self: stretch;
 }
 .caption button {
-  width: 46px;
+  width: 44px;
   border: none;
   background: none;
   display: grid;
@@ -127,8 +135,8 @@ textarea {
   color: var(--ink);
 }
 .caption button svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   stroke-width: 1.3;
 }
 .caption button:hover {
@@ -146,7 +154,7 @@ textarea {
 .side {
   display: flex;
   flex-direction: column;
-  padding: 4px 8px 12px;
+  padding: 2px 6px 8px;
   min-width: 0;
   overflow: hidden;
 }
@@ -154,41 +162,41 @@ textarea {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 44px;
-  padding: 0 8px;
-  margin: 4px 0 17px;
+  height: 32px;
+  padding: 0 7px;
+  margin: 2px 0 10px;
   white-space: nowrap;
 }
 .brand-name {
   font-weight: 650;
-  font-size: 21px;
+  font-size: 18px;
   letter-spacing: -0.02em;
   line-height: 1;
 }
 .side nav {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 1px;
 }
 .side nav > * {
   display: flex;
   align-items: center;
-  gap: 12px;
-  height: 35px;
-  padding: 0 10px;
+  gap: 10px;
+  height: 30px;
+  padding: 0 9px;
   border: none;
   background: none;
-  border-radius: 8px;
+  border-radius: 0;
   color: var(--ink);
-  font-size: 16.5px;
+  font-size: 14.5px;
   font-weight: 500;
   text-align: left;
   white-space: nowrap;
   text-decoration: none;
 }
 .side nav > * svg {
-  width: 21px;
-  height: 21px;
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
   color: var(--ink);
 }
@@ -210,35 +218,35 @@ textarea {
 .content {
   position: relative;
   min-height: 0;
-  margin: 0 8px 8px 0;
+  margin: 0 6px 6px 0;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 24px 24px 16px 16px;
+  border-radius: 0;
   overflow-y: auto;
   scrollbar-gutter: stable;
 }
 .page {
-  max-width: max(920px, 62vw);
+  max-width: max(900px, 62vw);
   margin: 0 auto;
-  padding: 52px 50px 60px;
+  padding: 28px 32px 36px;
 }
 .page-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  margin-bottom: 26px;
+  gap: 14px;
+  margin-bottom: 16px;
 }
 .page-head h1 {
-  font-size: 30px;
-  font-weight: 550;
+  font-size: 22px;
+  font-weight: 600;
   letter-spacing: -0.015em;
   line-height: 1.2;
   margin: 0;
 }
 .sub {
   color: var(--muted);
-  margin: 6px 0 0;
+  margin: 3px 0 0;
   max-width: 620px;
 }
 .sub b {
@@ -247,22 +255,22 @@ textarea {
 }
 .page-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 /* ---------- tabs ---------- */
 .tabs {
   display: flex;
   gap: 0;
-  border-bottom: 2px solid var(--line);
-  margin: 4px 0 28px;
+  border-bottom: 1px solid var(--line);
+  margin: 2px 0 16px;
 }
 .tabs button {
   position: relative;
   border: none;
   background: none;
-  padding: 6px 12px 10px;
-  font-size: 15px;
+  padding: 5px 10px 7px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--muted);
 }
@@ -274,7 +282,7 @@ textarea {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: -2px;
+  bottom: -1px;
   height: 2px;
   background: var(--ink);
 }
@@ -286,37 +294,36 @@ textarea {
 .hero {
   position: relative;
   overflow: hidden;
-  border-radius: 24px;
-  padding: 34px 32px 32px;
-  margin-bottom: 26px;
+  border-radius: 0;
+  padding: 20px 22px 18px;
+  margin-bottom: 16px;
   color: #fff;
   background: #121212;
   isolation: isolate;
 }
 .hero::before {
-  /* soft out-of-focus light, drawn in CSS (our own art) */
+  /* flat gradient art drawn in CSS (no blur filter: the radial stops are already soft) */
   content: "";
   position: absolute;
-  inset: -30%;
+  inset: 0;
   z-index: -1;
-  filter: blur(40px);
   background: var(--hero-art);
   opacity: 0.95;
 }
 .hero h2 {
   font-family: var(--display);
   font-weight: 400;
-  font-size: 40px;
-  line-height: 1.1;
-  letter-spacing: -0.03em;
-  margin: 0 0 14px;
-  max-width: 760px;
+  font-size: 27px;
+  line-height: 1.12;
+  letter-spacing: -0.025em;
+  margin: 0 0 8px;
+  max-width: 720px;
 }
 .hero p {
-  margin: 0 0 22px;
-  max-width: 520px;
-  font-size: 15px;
-  line-height: 1.55;
+  margin: 0 0 14px;
+  max-width: 540px;
+  font-size: 14px;
+  line-height: 1.45;
   color: rgba(255, 255, 255, 0.92);
 }
 .hero p b {
@@ -326,22 +333,26 @@ textarea {
 .hero .hero-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
 }
 .hero-close {
   position: absolute;
-  top: 14px;
-  right: 14px;
+  top: 8px;
+  right: 8px;
   border: none;
   background: none;
   color: #fff;
   opacity: 0.85;
-  padding: 4px;
+  padding: 5px;
+  min-width: 28px;
+  min-height: 28px;
+  display: grid;
+  place-items: center;
 }
 .hero-close svg {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
 }
 .hero.amber {
   --hero-art: radial-gradient(40% 60% at 75% 40%, #c27a3a 0%, transparent 70%), radial-gradient(35% 50% at 30% 80%, #6b3a1c 0%, transparent 70%),
@@ -368,13 +379,12 @@ textarea {
   background: #fff;
 }
 .btn.glass {
-  background: rgba(255, 255, 255, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.6);
   color: var(--vast-950);
-  backdrop-filter: blur(6px);
 }
 .btn.glass:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.65);
 }
 
 /* ---------- primitives ---------- */
@@ -385,22 +395,22 @@ textarea {
 }
 .card.pad,
 .pad {
-  padding: 16px 20px;
+  padding: 12px 15px;
 }
 .section {
-  margin-bottom: 30px;
+  margin-bottom: 18px;
 }
 .section-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin: 0 2px 10px;
+  margin: 0 1px 6px;
 }
 .section-head h3,
 .label {
   margin: 0;
-  font-size: 13px;
-  font-weight: 550;
+  font-size: 12px;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--muted);
@@ -409,9 +419,9 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  min-height: 56px;
-  padding: 14px 20px;
+  gap: 16px;
+  min-height: 42px;
+  padding: 9px 14px;
   border-bottom: 1px solid var(--line);
 }
 .row:last-child {
@@ -419,49 +429,50 @@ textarea {
 }
 .row-title {
   font-weight: 500;
-  font-size: 15px;
+  font-size: 14px;
 }
 .row-desc {
   color: var(--muted);
-  font-size: 13.5px;
-  margin-top: 2px;
+  font-size: 13px;
+  margin-top: 1px;
   max-width: 540px;
+  line-height: 1.35;
 }
 .row-warn {
   color: var(--danger);
   font-size: 13px;
-  margin-top: 3px;
+  margin-top: 2px;
 }
 .row-ctl {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-shrink: 0;
 }
 .row-ctl select {
-  min-width: 220px;
+  min-width: 200px;
 }
 input.inline {
-  width: 220px;
+  width: 200px;
 }
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 34px;
+  height: 32px;
   border: 1px solid var(--line-strong);
   background: var(--card);
-  padding: 0 14px;
-  border-radius: 8px;
+  padding: 0 12px;
+  border-radius: 0;
   font-weight: 500;
-  font-size: 15px;
-  transition: background 0.15s, border-color 0.15s, transform 0.08s;
+  font-size: 14px;
+  transition: background var(--t-fast), border-color var(--t-fast);
   white-space: nowrap;
 }
 .btn svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
 }
 .btn:hover:not(:disabled) {
   background: var(--fill);
@@ -473,7 +484,7 @@ input.inline {
   background: var(--accent);
   color: var(--on-primary);
   border-color: var(--accent);
-  padding: 0 20px;
+  padding: 0 16px;
 }
 .btn.primary:hover:not(:disabled) {
   background: var(--vast-800);
@@ -493,13 +504,13 @@ input.inline {
 }
 .btn.small {
   height: 28px;
-  padding: 0 10px;
-  font-size: 13.5px;
+  padding: 0 9px;
+  font-size: 13px;
 }
 .btn.big {
-  height: 42px;
-  padding: 0 24px;
-  font-size: 16px;
+  height: 36px;
+  padding: 0 18px;
+  font-size: 15px;
 }
 .link {
   background: none;
@@ -523,14 +534,15 @@ input.inline {
 .small {
   font-size: 13px;
 }
+/* square switch */
 .toggle {
-  width: 38px;
-  height: 22px;
-  border-radius: 999px;
+  width: 34px;
+  height: 18px;
+  border-radius: 0;
   border: none;
   background: var(--vast-200);
   position: relative;
-  transition: background 0.18s;
+  transition: background var(--t-fast);
   padding: 0;
   flex-shrink: 0;
 }
@@ -541,12 +553,11 @@ input.inline {
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 0;
   background: #fff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-  transition: transform 0.18s cubic-bezier(0.05, 0.6, 0.4, 0.95);
+  transition: transform var(--t-fast) ease-out;
 }
 .toggle.on {
   background: var(--vast-950);
@@ -562,22 +573,22 @@ input.inline {
 }
 .keys {
   display: inline-flex;
-  gap: 5px;
+  gap: 4px;
   align-items: center;
 }
 kbd {
   font-family: var(--font);
   font-size: 13px;
-  font-weight: 550;
-  min-width: 28px;
+  font-weight: 600;
+  min-width: 24px;
   text-align: center;
-  padding: 3px 9px;
-  border-radius: 6px;
+  padding: 2px 7px;
+  border-radius: 0;
   background: var(--card);
   border: 1px solid var(--line-strong);
   box-shadow: 0 1px 0 var(--line-strong);
   color: var(--ink-2);
-  transition: background 0.1s, color 0.1s, border-color 0.1s;
+  transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast);
 }
 kbd.lit {
   background: var(--vast-950);
@@ -585,10 +596,10 @@ kbd.lit {
   border-color: var(--vast-950);
 }
 .tag {
-  font-size: 12px;
-  font-weight: 550;
-  padding: 2px 8px;
-  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 0;
   background: var(--fill);
   color: var(--muted);
   text-transform: capitalize;
@@ -627,9 +638,9 @@ kbd.lit {
   background: #fdecec;
   border: 1px solid #f3b9b9;
   color: #9b2c2c;
-  border-radius: 10px;
-  padding: 10px 14px;
-  margin-bottom: 16px;
+  border-radius: 0;
+  padding: 8px 12px;
+  margin-bottom: 12px;
 }
 [data-theme="dark"] .alert {
   background: #3a1d1d;
@@ -638,17 +649,17 @@ kbd.lit {
 }
 .empty {
   text-align: center;
-  padding: 50px 20px;
+  padding: 28px 16px;
   border: 1px dashed var(--line-strong);
   border-radius: var(--r);
 }
 .empty-title {
-  font-weight: 550;
-  font-size: 16px;
+  font-weight: 600;
+  font-size: 15px;
 }
 .empty-body {
   color: var(--muted);
-  margin-top: 6px;
+  margin-top: 4px;
   max-width: 420px;
   margin-inline: auto;
 }
@@ -656,14 +667,16 @@ kbd.lit {
   border: none;
   background: none;
   color: var(--muted);
-  padding: 6px;
-  border-radius: 8px;
+  padding: 5px;
+  min-width: 28px;
+  min-height: 28px;
+  border-radius: 0;
   display: grid;
   place-items: center;
 }
 .icon-btn svg {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
 }
 .icon-btn:hover {
   background: var(--fill);
@@ -676,24 +689,24 @@ kbd.lit {
 /* A bordered list of rows, like the dictionary and snippets lists. */
 .list-card {
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 0;
   background: var(--card);
   overflow: hidden;
 }
 .list-card > * {
-  min-height: 52px;
+  min-height: 38px;
   border-bottom: 1px solid var(--line);
 }
 .list-card > *:last-child {
   border-bottom: none;
 }
 .content::-webkit-scrollbar {
-  width: 10px;
+  width: 8px;
 }
 .content::-webkit-scrollbar-thumb {
   background: var(--line-strong);
-  border-radius: 10px;
-  border: 3px solid var(--surface);
+  border-radius: 0;
+  border: 2px solid var(--surface);
 }
 .content::-webkit-scrollbar-track {
   background: transparent;
@@ -712,30 +725,30 @@ kbd.lit {
   display: grid;
   place-items: center;
   background: rgba(26, 26, 26, 0.32);
-  animation: fade 0.15s ease-out;
+  animation: fade var(--t-fast) ease-out;
 }
 .modal {
-  width: min(520px, calc(100vw - 48px));
+  width: min(500px, calc(100vw - 40px));
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  padding: 26px 28px 24px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  padding: 18px 20px 16px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16);
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  animation: pop 0.18s cubic-bezier(0.05, 0.6, 0.4, 0.95);
+  gap: 10px;
+  animation: pop var(--t-med) ease-out;
 }
 .modal h3 {
-  margin: 0 0 2px;
-  font-size: 20px;
+  margin: 0;
+  font-size: 17px;
   font-weight: 600;
 }
 .modal label {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  font-size: 14px;
+  gap: 4px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--ink-2);
 }
@@ -748,8 +761,8 @@ kbd.lit {
 .modal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 6px;
+  gap: 6px;
+  margin-top: 4px;
 }
 @keyframes fade {
   from {
@@ -759,7 +772,7 @@ kbd.lit {
 @keyframes pop {
   from {
     opacity: 0;
-    transform: translateY(6px) scale(0.98);
+    transform: translateY(3px);
   }
 }
 
@@ -767,9 +780,9 @@ kbd.lit {
 .entry {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 14px 0 20px;
-  font-size: 16.5px;
+  gap: 8px;
+  padding: 0 10px 0 14px;
+  font-size: 14.5px;
   cursor: default;
 }
 .entry:hover {
@@ -781,7 +794,7 @@ kbd.lit {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 14px 0;
+  padding: 9px 0;
 }
 .entry .sparkle {
   color: #e9b949;
@@ -789,9 +802,9 @@ kbd.lit {
 }
 .entry-tools {
   display: flex;
-  gap: 2px;
+  gap: 1px;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--t-fast);
 }
 .entry:hover .entry-tools,
 .entry-tools .on {
@@ -807,28 +820,59 @@ kbd.lit {
 
 .side nav > button {
   font: inherit;
-  font-size: 16.5px;
+  font-size: 14.5px;
 }
 
 /* ---------- macOS permission alert (Hub) ---------- */
 .perm-alert {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
-  padding: 16px 20px;
-  margin-bottom: 22px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
   border: 1px solid var(--line-strong);
-  border-radius: 16px;
+  border-radius: 0;
   background: var(--card);
 }
 .perm-alert > div {
   flex: 1 1 280px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 .perm-alert span {
   color: var(--ink-2);
-  font-size: 14px;
+  font-size: 13px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------- permission restart / result (Hub, Onboarding) ---------- */
+.perm-restart,
+.perm-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  margin: 12px 0;
+  border: 1px solid var(--line-strong);
+  background: var(--card);
+  font-size: 13.5px;
+}
+.perm-restart span {
+  flex: 1 1 260px;
+  color: var(--ink-2);
+}
+.perm-result.ok {
+  border-color: var(--ok, #2f9e5b);
 }

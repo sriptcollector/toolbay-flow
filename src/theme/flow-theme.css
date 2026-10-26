@@ -52,7 +52,7 @@
   --danger: var(--destructive);
   --focus: rgba(26, 26, 26, 0.12);
   --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.04);
-  --r: 16px;
+  --r: 0; /* square corners everywhere */
   --font: "Figtree Variable", "Figtree", "Segoe UI", system-ui, sans-serif;
   --display: "EB Garamond", Georgia, "Times New Roman", serif;
   --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
