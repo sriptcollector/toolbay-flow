@@ -14,20 +14,27 @@ mod imp {
 
     // IOKit/hid/IOHIDLib.h
     const LISTEN_EVENT: u32 = 1; // kIOHIDRequestTypeListenEvent
-    const GRANTED: u32 = 0; // kIOHIDAccessTypeGranted
 
     #[link(name = "IOKit", kind = "framework")]
     extern "C" {
-        fn IOHIDCheckAccess(request: u32) -> u32;
         fn IOHIDRequestAccess(request: u32) -> bool;
+    }
+
+    // CoreGraphics: the check that matches what the shortcut's event tap needs.
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGPreflightListenEventAccess() -> bool;
+        fn CGRequestListenEventAccess() -> bool;
     }
 
     pub fn accessibility() -> bool {
         unsafe { AXIsProcessTrusted() }
     }
 
+    /// Input Monitoring is on if macOS says so, or if the shortcut's listener is already running
+    /// (the real test: it can only start with the permission).
     pub fn input_monitoring() -> bool {
-        unsafe { IOHIDCheckAccess(LISTEN_EVENT) == GRANTED }
+        crate::hotkeys::mac_listening() || unsafe { CGPreflightListenEventAccess() }
     }
 
     pub fn request_accessibility() -> bool {
@@ -39,7 +46,15 @@ mod imp {
     }
 
     pub fn request_input_monitoring() -> bool {
-        unsafe { IOHIDRequestAccess(LISTEN_EVENT) }
+        if input_monitoring() {
+            return true;
+        }
+        // Either call adds Toolbay Flow to the Input Monitoring list; ask both so it's there.
+        unsafe {
+            let cg = CGRequestListenEventAccess();
+            let hid = IOHIDRequestAccess(LISTEN_EVENT);
+            cg || hid
+        }
     }
 }
 

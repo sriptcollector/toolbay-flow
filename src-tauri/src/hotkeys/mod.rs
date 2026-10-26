@@ -266,6 +266,12 @@ pub fn feed(vk: u32, down: bool) {
     let _ = (vk, down);
 }
 
+/// Whether the macOS shortcut listener is running (it needs Input Monitoring to start).
+#[cfg(target_os = "macos")]
+pub fn mac_listening() -> bool {
+    macos::LISTENING.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 pub fn start(shared: Arc<Shared>, sink: Sink) {
     #[cfg(windows)]
     windows::start(shared, sink);
