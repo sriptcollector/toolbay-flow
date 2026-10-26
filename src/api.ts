@@ -214,6 +214,7 @@ export const api = {
   hasDesktopShortcut: () => invoke<boolean>("has_desktop_shortcut"),
   micCheck: () => invoke<{ ok: boolean; message: string }>("mic_check"),
   openSystemSettings: (kind: string) => invoke<void>("open_system_settings", { kind }),
+  macPermissions: () => invoke<{ accessibility: boolean; input: boolean }>("mac_permissions"),
 };
 
 export interface SyncStatus {

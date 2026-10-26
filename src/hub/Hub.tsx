@@ -151,10 +151,41 @@ export default function Hub() {
         </nav>
       </aside>
       <main className="content">
+        {mac && <MacPermissionAlert />}
         <Current key={page} go={(p: string) => (p === "feedback" ? setFeedback(true) : setPage(p as PageId))} />
       </main>
       {feedback && <Feedback onClose={() => setFeedback(false)} />}
       <Toaster />
+    </div>
+  );
+}
+
+/** Shown on every page until macOS allows typing and the shortcut; without them dictation can't start. */
+function MacPermissionAlert() {
+  const [p, setP] = useState<{ accessibility: boolean; input: boolean } | null>(null);
+  useEffect(() => {
+    const check = () => api.macPermissions().then(setP).catch(() => {});
+    check();
+    const t = setInterval(check, 2000);
+    return () => clearInterval(t);
+  }, []);
+  if (!p || (p.accessibility && p.input)) return null;
+  return (
+    <div className="perm-alert" role="alert">
+      <div>
+        <b>Your shortcut won't work until macOS allows Toolbay Flow</b>
+        <span>Click each button, then switch Toolbay Flow on in the window that opens.</span>
+      </div>
+      {!p.accessibility && (
+        <button className="btn" onClick={() => api.openSystemSettings("accessibility")}>
+          Allow Accessibility
+        </button>
+      )}
+      {!p.input && (
+        <button className="btn" onClick={() => api.openSystemSettings("input")}>
+          Allow Input Monitoring
+        </button>
+      )}
     </div>
   );
 }

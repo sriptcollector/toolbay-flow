@@ -41,18 +41,33 @@ pub fn start(shared: Arc<Shared>, sink: Sink) {
     std::thread::Builder::new()
         .name("hotkeys".into())
         .spawn(move || {
-            let res = rdev::listen(move |ev| {
-                let (k, down) = match ev.event_type {
-                    rdev::EventType::KeyPress(k) => (k, true),
-                    rdev::EventType::KeyRelease(k) => (k, false),
-                    _ => return,
-                };
-                if let Some(c) = code(k) {
-                    m.lock().key(c, down);
+            // Without permission the event tap can't be created. Wait for it instead of giving up,
+            // so the shortcut starts working as soon as it's switched on, without a restart.
+            let mut logged = false;
+            loop {
+                if !(crate::macperm::accessibility() && crate::macperm::input_monitoring()) {
+                    if !logged {
+                        log::warn!("macOS key listener waiting for Accessibility and Input Monitoring");
+                        logged = true;
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    continue;
                 }
-            });
-            if let Err(e) = res {
-                log::error!("macOS key listener failed (grant Accessibility / Input Monitoring): {e:?}");
+                let m = m.clone();
+                let res = rdev::listen(move |ev| {
+                    let (k, down) = match ev.event_type {
+                        rdev::EventType::KeyPress(k) => (k, true),
+                        rdev::EventType::KeyRelease(k) => (k, false),
+                        _ => return,
+                    };
+                    if let Some(c) = code(k) {
+                        m.lock().key(c, down);
+                    }
+                });
+                if let Err(e) = res {
+                    log::error!("macOS key listener failed, retrying: {e:?}");
+                }
+                std::thread::sleep(std::time::Duration::from_secs(2));
             }
         })
         .ok();

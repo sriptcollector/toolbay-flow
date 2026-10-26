@@ -809,3 +809,26 @@ kbd.lit {
   font: inherit;
   font-size: 16.5px;
 }
+
+/* ---------- macOS permission alert (Hub) ---------- */
+.perm-alert {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 16px 20px;
+  margin-bottom: 22px;
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  background: var(--card);
+}
+.perm-alert > div {
+  flex: 1 1 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.perm-alert span {
+  color: var(--ink-2);
+  font-size: 14px;
+}

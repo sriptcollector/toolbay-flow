@@ -235,8 +235,12 @@ function PermCard({ icon, title, desc, ok, action, onAction }: { icon: string; t
 
 function Permissions({ next, back }: StepProps) {
   const [mic, setMic] = useState<{ ok: boolean; message: string } | null>(null);
+  const [mac, setMac] = useState<{ accessibility: boolean; input: boolean } | null>(null);
   useEffect(() => {
-    const check = () => api.micCheck().then(setMic);
+    const check = () => {
+      api.micCheck().then(setMic);
+      if (isMac) api.macPermissions().then(setMac);
+    };
     check();
     const t = setInterval(check, 2500);
     return () => clearInterval(t);
@@ -256,8 +260,8 @@ function Permissions({ next, back }: StepProps) {
         />
         {isMac && (
           <>
-            <PermCard icon="⌨️" title="Accessibility" desc="So Toolbay Flow can type the text into the app you're using." ok={null} action="Open settings" onAction={() => api.openSystemSettings("accessibility")} />
-            <PermCard icon="🔑" title="Input Monitoring" desc="So your dictation shortcut works in every app." ok={null} action="Open settings" onAction={() => api.openSystemSettings("input")} />
+            <PermCard icon="⌨️" title="Accessibility" desc="So Toolbay Flow can type the text into the app you're using." ok={mac?.accessibility ?? null} action="Allow" onAction={() => api.openSystemSettings("accessibility")} />
+            <PermCard icon="🔑" title="Input Monitoring" desc="So your dictation shortcut works in every app." ok={mac?.input ?? null} action="Allow" onAction={() => api.openSystemSettings("input")} />
           </>
         )}
       </div>
@@ -272,7 +276,7 @@ function Permissions({ next, back }: StepProps) {
           <span className="muted small">In System Settings, find Toolbay Flow in the list and turn it on. If it isn't listed, click + and pick Toolbay Flow from Applications.</span>
         </div>
       )}
-      <Nav back={back} next={next} nextLabel={mic?.ok ? "Continue" : "I've allowed it"} />
+      <Nav back={back} next={next} nextLabel={mic?.ok && (!isMac || (mac?.accessibility && mac?.input)) ? "Continue" : "I've allowed it"} />
     </div>
   );
 }

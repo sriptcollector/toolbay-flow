@@ -11,6 +11,7 @@ mod hub;
 mod import;
 mod llm;
 mod logging;
+mod macperm;
 mod updates;
 mod models;
 mod paste;
@@ -400,6 +401,7 @@ pub fn run() {
             commands::has_desktop_shortcut,
             commands::mic_check,
             commands::open_system_settings,
+            commands::mac_permissions,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Toolbay Flow")

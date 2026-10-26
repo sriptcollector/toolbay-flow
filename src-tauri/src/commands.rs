@@ -471,10 +471,28 @@ pub fn mic_check(st: State<St>) -> MicCheck {
     }
 }
 
-/// Opens the right page of the OS privacy settings.
+#[derive(serde::Serialize)]
+pub struct MacPermissions {
+    accessibility: bool,
+    input: bool,
+}
+
+/// Whether macOS has allowed typing (Accessibility) and the shortcut (Input Monitoring).
+#[tauri::command]
+pub fn mac_permissions() -> MacPermissions {
+    MacPermissions { accessibility: crate::macperm::accessibility(), input: crate::macperm::input_monitoring() }
+}
+
+/// Opens the right page of the OS privacy settings. On macOS it first asks for the permission,
+/// which is what adds Toolbay Flow to the list on that page.
 #[tauri::command]
 pub fn open_system_settings(app: AppHandle, kind: String) {
     use tauri_plugin_opener::OpenerExt;
+    match kind.as_str() {
+        "accessibility" if crate::macperm::request_accessibility() => return,
+        "input" if crate::macperm::request_input_monitoring() => return,
+        _ => {}
+    }
     let url = if cfg!(windows) {
         match kind.as_str() {
             "microphone" => "ms-settings:privacy-microphone",
