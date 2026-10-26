@@ -162,14 +162,30 @@ export default function Hub() {
 
 /** Shown on every page until macOS allows typing and the shortcut; without them dictation can't start. */
 function MacPermissionAlert() {
-  const [p, setP] = useState<{ accessibility: boolean; input: boolean } | null>(null);
+  const [settings] = useSettings();
+  const [p, setP] = useState<{ accessibility: boolean; input: boolean; fn_free: boolean } | null>(null);
   useEffect(() => {
     const check = () => api.macPermissions().then(setP).catch(() => {});
     check();
     const t = setInterval(check, 2000);
     return () => clearInterval(t);
   }, []);
-  if (!p || (p.accessibility && p.input)) return null;
+  if (!p) return null;
+  const usesFn = settings?.shortcuts.some((s) => s.keys.includes(63)) ?? false;
+  if (p.accessibility && p.input) {
+    if (!usesFn || p.fn_free) return null;
+    return (
+      <div className="perm-alert" role="alert">
+        <div>
+          <b>macOS is also using the Fn key</b>
+          <span>In Keyboard settings, set “Press 🌐 key to” to “Do Nothing”, so holding Fn starts Toolbay Flow instead of emoji or dictation.</span>
+        </div>
+        <button className="btn" onClick={() => api.openSystemSettings("keyboard")}>
+          Open Keyboard settings
+        </button>
+      </div>
+    );
+  }
   return (
     <div className="perm-alert" role="alert">
       <div>

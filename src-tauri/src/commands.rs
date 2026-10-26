@@ -475,12 +475,19 @@ pub fn mic_check(st: State<St>) -> MicCheck {
 pub struct MacPermissions {
     accessibility: bool,
     input: bool,
+    /// False when macOS also uses the Fn (🌐) key, so holding it opens emoji or dictation.
+    fn_free: bool,
 }
 
-/// Whether macOS has allowed typing (Accessibility) and the shortcut (Input Monitoring).
+/// Whether macOS has allowed typing (Accessibility) and the shortcut (Input Monitoring), and
+/// whether the Fn key is free for Flow.
 #[tauri::command]
 pub fn mac_permissions() -> MacPermissions {
-    MacPermissions { accessibility: crate::macperm::accessibility(), input: crate::macperm::input_monitoring() }
+    MacPermissions {
+        accessibility: crate::macperm::accessibility(),
+        input: crate::macperm::input_monitoring(),
+        fn_free: crate::macperm::fn_key_usage() == Some(0),
+    }
 }
 
 /// Opens the right page of the OS privacy settings. On macOS it first asks for the permission,
@@ -502,6 +509,7 @@ pub fn open_system_settings(app: AppHandle, kind: String) {
         match kind.as_str() {
             "microphone" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
             "accessibility" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+            "keyboard" => "x-apple.systempreferences:com.apple.Keyboard-Settings.extension",
             _ => "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
         }
     };

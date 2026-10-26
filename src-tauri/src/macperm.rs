@@ -58,6 +58,26 @@ mod imp {
     }
 }
 
+/// System Settings > Keyboard > "Press 🌐 key to": 0 Do Nothing, 1 Change Input Source,
+/// 2 Show Emoji & Symbols, 3 Start Dictation. Anything but 0 makes macOS act on Fn too.
+/// None when unknown (not a Mac, or never changed: newer macOS then defaults to emoji).
+#[cfg(target_os = "macos")]
+pub fn fn_key_usage() -> Option<i64> {
+    let out = std::process::Command::new("/usr/bin/defaults")
+        .args(["read", "com.apple.HIToolbox", "AppleFnUsageType"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn fn_key_usage() -> Option<i64> {
+    Some(0)
+}
+
 #[cfg(not(target_os = "macos"))]
 mod imp {
     pub fn accessibility() -> bool { true }

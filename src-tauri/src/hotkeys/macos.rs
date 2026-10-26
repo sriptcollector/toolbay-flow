@@ -31,18 +31,19 @@ fn modifier_flag(code: u32) -> Option<CGEventFlags> {
         56 | 60 => CGEventFlags::CGEventFlagShift,
         58 | 61 => CGEventFlags::CGEventFlagAlternate,
         59 | 62 => CGEventFlags::CGEventFlagControl,
-        63 => CGEventFlags::CGEventFlagSecondaryFn,
+        63 | 179 => CGEventFlags::CGEventFlagSecondaryFn,
         57 => CGEventFlags::CGEventFlagAlphaShift,
         _ => return None,
     })
 }
 
-/// Shortcuts store left Shift for either Shift key; every other key is its virtual key code.
+/// Shortcuts store left Shift for either Shift key, and Fn for the globe key newer Apple
+/// keyboards report as 179; every other key is its virtual key code.
 fn normalize(code: u32) -> u32 {
-    if code == 60 {
-        SHIFT
-    } else {
-        code
+    match code {
+        60 => SHIFT,
+        179 => FN,
+        c => c,
     }
 }
 
