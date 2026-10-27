@@ -167,7 +167,6 @@ export default function Hub() {
 
 /** Shown on every page until macOS allows typing and the shortcut; without them dictation can't start. */
 function MacPermissionAlert() {
-  const [settings] = useSettings();
   const [p, setP] = useState<{ accessibility: boolean; input: boolean; fn_free: boolean } | null>(null);
   const [resumed] = useState(() => resumedFrom() === "app");
   const [asked, setAsked] = useState(askedThisRun);
@@ -178,7 +177,8 @@ function MacPermissionAlert() {
     const t = setInterval(check, 2000);
     return () => clearInterval(t);
   }, []);
-  const ok = !!p && p.accessibility && p.input;
+  // Like Wispr Flow: Accessibility covers both typing and hearing the shortcut.
+  const ok = !!p && p.accessibility;
   useEffect(() => {
     if (!resumed || !ok) return;
     clearPermissionResume();
@@ -192,7 +192,6 @@ function MacPermissionAlert() {
     setAsked(true);
     api.openSystemSettings(kind);
   };
-  const usesFn = settings?.shortcuts.some((s) => s.keys.includes(63)) ?? false;
   if (ok && thanks) {
     return (
       <div className="perm-result ok" role="status">
@@ -200,30 +199,18 @@ function MacPermissionAlert() {
       </div>
     );
   }
-  if (ok) {
-    if (!usesFn || p.fn_free) return null;
-    return (
-      <div className="perm-alert" role="alert">
-        <div>
-          <b>macOS is also using the Fn key</b>
-          <span>In Keyboard settings, set “Press 🌐 key to” to “Do Nothing”, so holding Fn starts Toolbay Flow instead of emoji or dictation.</span>
-        </div>
-        <button className="btn" onClick={() => api.openSystemSettings("keyboard")}>
-          Open Keyboard settings
-        </button>
-      </div>
-    );
-  }
+  // Flow holds Fn back from macOS itself, so the "Press 🌐 key to" setting doesn't matter.
+  if (ok) return null;
   return (
     <div className="perm-alert" role="alert">
       <div>
         <b>Your shortcut won't work until macOS allows Toolbay Flow</b>
         <span>
           {resumed
-            ? "Restarted, but macOS still has one off. Switch Toolbay Flow on for it, then restart again."
+            ? "Restarted, but Accessibility is still off. Switch Toolbay Flow on for it, then restart again."
             : asked
               ? "Switched it on? macOS applies it after Toolbay Flow restarts. You'll come right back here."
-              : "Click each button, then switch Toolbay Flow on in the window that opens. If it already looks on, Flow clears the old entry so you can switch it on fresh."}
+              : "Click Allow Accessibility, then switch Toolbay Flow on in the window that opens. If it already looks on, Flow clears the old entry so you can switch it on fresh."}
         </span>
       </div>
       {(asked || resumed) && (
@@ -234,11 +221,6 @@ function MacPermissionAlert() {
       {!p.accessibility && (
         <button className="btn" onClick={() => allow("accessibility")}>
           Allow Accessibility
-        </button>
-      )}
-      {!p.input && (
-        <button className="btn" onClick={() => allow("input")}>
-          Allow Input Monitoring
         </button>
       )}
     </div>

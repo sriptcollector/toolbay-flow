@@ -485,7 +485,8 @@ pub struct MacPermissions {
 pub fn mac_permissions() -> MacPermissions {
     MacPermissions {
         accessibility: crate::macperm::accessibility(),
-        input: crate::macperm::input_monitoring(),
+        // The shortcut listener is an active tap, covered by Accessibility (no Input Monitoring).
+        input: crate::macperm::accessibility(),
         fn_free: crate::macperm::fn_key_usage() == Some(0),
     }
 }
