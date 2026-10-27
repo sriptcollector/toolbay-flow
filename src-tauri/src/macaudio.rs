@@ -40,7 +40,9 @@ mod imp {
     const SCOPE_INPUT: u32 = code(b"inpt");
     const DEVICES: u32 = code(b"dev#");
     const DEFAULT_INPUT: u32 = code(b"dIn ");
-    const DEVICE_NAME: u32 = code(b"name"); // the name cpal reports
+    // kAudioObjectPropertyName ('lnam'), a CFString: the name cpal reports. Not 'name'
+    // (kAudioDevicePropertyDeviceName), which is a C string and crashed Flow when read as a CFString.
+    const DEVICE_NAME: u32 = code(b"lnam");
     const TRANSPORT: u32 = code(b"tran");
     const STREAMS: u32 = code(b"stm#");
     const BLUETOOTH: u32 = code(b"blue");
