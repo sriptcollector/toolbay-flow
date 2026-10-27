@@ -33,13 +33,17 @@ extern "C" {
 /// kCGEventSourceStateHIDSystemState: what the keyboard hardware says right now.
 const HID_STATE: i32 = 1;
 
+/// Set when macOS switched the tap off and we switched it back on: only then can a key release
+/// have been missed, so only then is the stale-key check run.
+static TAP_RECOVERED: AtomicBool = AtomicBool::new(false);
+
 /// Keys Flow believes are held (raw macOS codes), for the stale-key check.
 static HELD: Mutex<Vec<u32>> = parking_lot::const_mutex(Vec::new());
 
 fn really_down(code: u32) -> bool {
     unsafe {
         match modifier_flag(code) {
-            Some(flag) => CGEventSourceFlagsState(HID_STATE) & flag.bits() != 0,
+            Some(flag) => CGEventSourceFlagsState(HID_STATE) & flag.bits() != 0 || CGEventSourceKeyState(HID_STATE, code as u16),
             None => CGEventSourceKeyState(HID_STATE, code as u16),
         }
     }
@@ -55,8 +59,10 @@ fn note(code: u32, down: bool) {
 
 /// Wispr Flow's two safety nets, every 250 ms:
 /// - tap watchdog: macOS silently switches a tap off (timeouts, Secure Input); switch it back on.
-/// - stale keys: a release that never arrived (tap was off, focus moved) leaves Fn "held" and the
-///   next press is ignored. Ask the keyboard what's really down and release the rest.
+/// - stale keys: a release that never arrived while the tap was off leaves Fn "held" and the next
+///   press is ignored. Right after a recovery, ask the keyboard what's really down and release the
+///   rest. Never otherwise: Fn presses we hold back from macOS don't show in its key state, so a
+///   routine check would "release" Fn mid-dictation.
 fn start_watchdog(m: Arc<Mutex<Matcher>>) {
     std::thread::Builder::new()
         .name("hotkeys-watchdog".into())
@@ -65,7 +71,12 @@ fn start_watchdog(m: Arc<Mutex<Matcher>>) {
             let t = TAP.load(Ordering::SeqCst);
             if !t.is_null() && unsafe { !CGEventTapIsEnabled(t) } {
                 unsafe { CGEventTapEnable(t, true) };
+                TAP_RECOVERED.store(true, Ordering::SeqCst);
                 log::warn!("macOS key listener was switched off; re-enabled");
+                continue; // let the keyboard state settle before checking keys
+            }
+            if !TAP_RECOVERED.swap(false, Ordering::SeqCst) {
+                continue;
             }
             let stale: Vec<u32> = HELD.lock().iter().copied().filter(|&c| !really_down(c)).collect();
             for code in stale {
@@ -130,6 +141,7 @@ pub fn start(shared: Arc<Shared>, sink: Sink) {
                                 let t = TAP.load(Ordering::SeqCst);
                                 if !t.is_null() {
                                     unsafe { CGEventTapEnable(t, true) };
+                                    TAP_RECOVERED.store(true, Ordering::SeqCst);
                                 }
                             }
                             CGEventType::KeyDown | CGEventType::KeyUp => {

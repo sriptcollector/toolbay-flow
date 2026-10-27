@@ -4,7 +4,7 @@
   "name": "Toolbay Flow",
   "tagline": "Wispr Flow, reverse engineered and free",
   "description": "We reverse engineered Wispr Flow and made it free. Stop paying for dumb shit. Hold a key, speak, let go: clean, punctuated text appears wherever your cursor is. Speech recognition and cleanup run on your computer. No account, no word limits, no telemetry.",
-  "version": "0.4.15",
+  "version": "0.4.16",
   "repo": "sriptcollector/toolbay-flow",
   "identifier": "ai.toolbay.flow",
   "license": "MIT",
