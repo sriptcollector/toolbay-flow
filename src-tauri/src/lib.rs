@@ -12,6 +12,7 @@ mod hub;
 mod import;
 mod llm;
 mod logging;
+mod macaudio;
 mod macperm;
 mod updates;
 mod models;

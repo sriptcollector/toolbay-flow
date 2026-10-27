@@ -74,7 +74,8 @@ impl Recorder {
         let (stop_tx, stop_rx) = mpsc::channel::<()>();
         let (ready_tx, ready_rx) = mpsc::channel::<Result<()>>();
         let cap = self.cap.clone();
-        let dev_name = device.clone();
+        // On a Mac, a Bluetooth headset's mic is swapped for the built-in one (see macaudio.rs).
+        let dev_name = crate::macaudio::effective_input(device.clone());
         let handle = std::thread::Builder::new().name("mic".into()).spawn(move || {
             let res = (|| -> Result<cpal::Stream> {
                 let host = cpal::default_host();
@@ -195,6 +196,10 @@ impl Recorder {
     /// Opens the microphone without recording, keeping the last 300 ms in memory,
     /// so a dictation that starts right after includes the first syllable.
     pub fn warm(&mut self, device: Option<String>) -> Result<()> {
+        // Never pre-open a Bluetooth headset's mic: it would put the headphones in call mode.
+        if !crate::macaudio::keep_warm(crate::macaudio::effective_input(device.clone()).as_deref()) {
+            return Ok(());
+        }
         if self.is_recording() || (self.is_open() && self.device.as_ref() == Some(&device)) {
             self.last_used = Instant::now();
             return Ok(());
@@ -258,7 +263,13 @@ impl Recorder {
         self.conv_pos = 0;
         self.started = None;
         self.last_used = Instant::now();
-        std::mem::take(&mut self.conv)
+        let samples = std::mem::take(&mut self.conv);
+        // A Bluetooth headset mic is released right away, so the headphones leave call mode.
+        let dev = self.device.clone().flatten();
+        if !crate::macaudio::keep_warm(crate::macaudio::effective_input(dev).as_deref()) {
+            self.close();
+        }
+        samples
     }
 
     /// Closes the microphone once it has been idle for a while (called periodically).
