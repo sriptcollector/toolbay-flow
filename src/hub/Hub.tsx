@@ -6,6 +6,7 @@ import Onboarding from "./Onboarding";
 import { askedThisRun, clearPermissionResume, markPermissionAsked, resumedFrom } from "./permResume";
 import Feedback from "./Feedback";
 import logoPixel from "../assets/logo-pixel.png";
+import logoPixelLight from "../assets/logo-pixel-light.png";
 import Home from "./pages/Home";
 import Insights from "./pages/Insights";
 import Dictionary from "./pages/Dictionary";
@@ -41,6 +42,8 @@ export function useTheme(appearance?: string) {
     const apply = () => {
       const dark = appearance === "dark" || (appearance === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
       document.documentElement.dataset.theme = dark ? "dark" : "light";
+      // The Dock / taskbar icon follows too.
+      import("@tauri-apps/api/core").then(({ invoke }) => invoke("set_app_icon", { dark })).catch(() => {});
     };
     apply();
     const mq = matchMedia("(prefers-color-scheme: dark)");
@@ -244,5 +247,13 @@ function MacPermissionAlert() {
 
 /** Toolbay Flow's own mark: the app icon, pixel art like the rest of Toolbay's apps. */
 export function Logo({ size = 30 }: { size?: number }) {
-  return <img src={logoPixel} width={size} height={size} className="logo" alt="" style={{ imageRendering: "pixelated" }} />;
+  const isDark = () => document.documentElement.dataset.theme === "dark";
+  const [dark, setDark] = useState(isDark);
+  useEffect(() => {
+    const mo = new MutationObserver(() => setDark(isDark()));
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => mo.disconnect();
+  }, []);
+  const src = dark ? logoPixel : logoPixelLight;
+  return <img src={src} width={size} height={size} className="logo" alt="" style={{ imageRendering: "pixelated" }} />;
 }

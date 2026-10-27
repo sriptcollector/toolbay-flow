@@ -2,7 +2,7 @@
 
 <h1 align="center">Toolbay Flow</h1>
 
-<p align="center"><b>Free, local, open-source voice dictation for any app.</b><br>
+<p align="center"><b>We reverse engineered Wispr Flow and made it free. Stop paying for dumb shit.</b><br>
 Hold a key, speak, let go: clean, punctuated text appears wherever your cursor is.<br>
 No account needed. No word limits. No subscription. Nothing leaves your computer.</p>
 

@@ -1,5 +1,6 @@
 //! Toolbay Flow: free, local, open-source voice dictation for any app.
 
+mod appicon;
 mod audio;
 mod commands;
 mod context;
@@ -351,6 +352,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            appicon::set_app_icon,
             commands::get_settings,
             commands::save_settings,
             commands::default_shortcuts,
