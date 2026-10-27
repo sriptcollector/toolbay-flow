@@ -502,8 +502,8 @@ pub fn restart_app(app: AppHandle) {
 pub fn open_system_settings(app: AppHandle, kind: String) {
     use tauri_plugin_opener::OpenerExt;
     match kind.as_str() {
-        "accessibility" if crate::macperm::request_accessibility() => return,
-        "input" if crate::macperm::request_input_monitoring() => return,
+        "accessibility" if crate::macperm::fresh_request_accessibility() => return,
+        "input" if crate::macperm::fresh_request_input_monitoring() => return,
         _ => {}
     }
     let url = if cfg!(windows) {

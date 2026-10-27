@@ -219,7 +219,7 @@ function MacPermissionAlert() {
             ? "Restarted, but macOS still has one off. Switch Toolbay Flow on for it, then restart again."
             : asked
               ? "Switched it on? macOS applies it after Toolbay Flow restarts. You'll come right back here."
-              : "Click each button, then switch Toolbay Flow on in the window that opens."}
+              : "Click each button, then switch Toolbay Flow on in the window that opens. If it already looks on, Flow clears the old entry so you can switch it on fresh."}
         </span>
       </div>
       {(asked || resumed) && (

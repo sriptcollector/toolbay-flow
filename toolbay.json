@@ -4,7 +4,7 @@
   "name": "Toolbay Flow",
   "tagline": "Free, local voice dictation in any app",
   "description": "Hold a key, speak, let go: clean, punctuated text appears wherever your cursor is. Speech recognition and cleanup run on your computer. No account, no word limits, no telemetry.",
-  "version": "0.4.11",
+  "version": "0.4.12",
   "repo": "sriptcollector/toolbay-flow",
   "identifier": "ai.toolbay.flow",
   "license": "MIT",

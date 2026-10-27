@@ -45,6 +45,36 @@ jobs:
       # Tauri doesn't sign programs placed in Resources (the bundled speech
       # engine), so sign every Mach-O there first: Developer ID when the
       # certificate exists, otherwise ad-hoc. Notarization rejects unsigned ones.
+      # Until the Apple certificate exists, sign with Toolbay's own fixed certificate instead of
+      # ad-hoc. macOS remembers Accessibility / Input Monitoring by the signing certificate, so
+      # with the same certificate on every release those permissions survive updates (ad-hoc
+      # signatures change with every build, so macOS treated each update as a new app).
+      - name: Toolbay signing certificate (macOS, until the Apple one exists)
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          MAC_SELFSIGN_P12: ${{ secrets.MAC_SELFSIGN_P12 }}
+          MAC_SELFSIGN_PASSWORD: ${{ secrets.MAC_SELFSIGN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -n "${APPLE_CERTIFICATE:-}" ] || [ -z "${MAC_SELFSIGN_P12:-}" ]; then exit 0; fi
+          kc=$RUNNER_TEMP/toolbay.keychain-db; pw=$(uuidgen)
+          echo "$MAC_SELFSIGN_P12" | base64 --decode > $RUNNER_TEMP/self.p12
+          security create-keychain -p "$pw" "$kc"
+          security set-keychain-settings -lut 21600 "$kc"
+          security unlock-keychain -p "$pw" "$kc"
+          security import $RUNNER_TEMP/self.p12 -k "$kc" -P "$MAC_SELFSIGN_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$pw" "$kc" >/dev/null
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          # codesign only uses a self-signed identity that's trusted for code signing.
+          openssl pkcs12 -in $RUNNER_TEMP/self.p12 -passin pass:"$MAC_SELFSIGN_PASSWORD" -nokeys -legacy -out $RUNNER_TEMP/self.pem 2>/dev/null \
+            || openssl pkcs12 -in $RUNNER_TEMP/self.p12 -passin pass:"$MAC_SELFSIGN_PASSWORD" -nokeys -out $RUNNER_TEMP/self.pem
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain $RUNNER_TEMP/self.pem
+          rm $RUNNER_TEMP/self.p12
+          security find-identity -v -p codesigning "$kc"
+          echo "SELF_SIGN_ID=Toolbay Flow Signing" >> "$GITHUB_ENV"
+          echo "APPLE_SIGNING_IDENTITY=Toolbay Flow Signing" >> "$GITHUB_ENV"
       - name: Sign bundled engines (macOS)
         if: matrix.os == 'macos-latest'
         shell: bash
@@ -53,7 +83,7 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           set -euo pipefail
-          id="-"; extra=()
+          id="${SELF_SIGN_ID:--}"; extra=()
           if [ -n "${APPLE_CERTIFICATE:-}" ]; then
             kc=$RUNNER_TEMP/engines.keychain-db; pw=$(uuidgen)
             echo "$APPLE_CERTIFICATE" | base64 --decode > $RUNNER_TEMP/cert.p12
@@ -103,6 +133,8 @@ jobs:
               echo "APPLE_PASSWORD=$APPLE_APP_PASSWORD" >> "$GITHUB_ENV"
               echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> "$GITHUB_ENV"
             fi
+          elif [ -n "${SELF_SIGN_ID:-}" ]; then
+            echo "No Apple certificate yet: signing with $SELF_SIGN_ID"
           else
             echo "No Apple certificate yet: ad-hoc signing only"
           fi
@@ -159,6 +191,12 @@ Parity with Wispr Flow: ${{ env.PARITY }}."
             fi
           done
           codesign -d --verbose=4 "$app" 2>&1 | grep -E "^(Authority|Signature|TeamIdentifier|Runtime|flags)" || true
+          # Permissions follow this requirement; it must name the certificate, not a build hash.
+          codesign -d -r- "$app" 2>&1 | tail -1
+          if [ -n "${SELF_SIGN_ID:-}" ]; then
+            codesign -d --verbose=4 "$app" 2>&1 | grep -q "Authority=$SELF_SIGN_ID"
+            codesign -d -r- "$app" 2>&1 | grep -q "certificate"
+          fi
           dmg=$(ls "$bundle"/dmg/*.dmg | head -1)
           mnt=$(hdiutil attach -nobrowse -readonly "$dmg" | tail -1 | awk -F'	' '{print $NF}')
           codesign --verify --deep --strict --verbose=2 "$mnt"/*.app

@@ -45,6 +45,38 @@ mod imp {
         }
     }
 
+    /// Clear Toolbay Flow's own entry for a privacy service (once per run). An older build's
+    /// entry can show as switched on in System Settings while macOS ignores it for this build;
+    /// after the reset, the request below adds a fresh entry that does apply.
+    fn reset_once(service: &str, done: &std::sync::atomic::AtomicBool) {
+        if done.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let _ = std::process::Command::new("/usr/bin/tccutil")
+            .args(["reset", service, "ai.toolbay.flow"])
+            .status();
+    }
+
+    static AX_RESET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    static INPUT_RESET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    /// Allow button: the permission isn't working, so start it over cleanly and ask again.
+    pub fn fresh_request_accessibility() -> bool {
+        if accessibility() {
+            return true;
+        }
+        reset_once("Accessibility", &AX_RESET);
+        request_accessibility()
+    }
+
+    pub fn fresh_request_input_monitoring() -> bool {
+        if input_monitoring() {
+            return true;
+        }
+        reset_once("ListenEvent", &INPUT_RESET);
+        request_input_monitoring()
+    }
+
     pub fn request_input_monitoring() -> bool {
         if input_monitoring() {
             return true;
@@ -79,11 +111,14 @@ pub fn fn_key_usage() -> Option<i64> {
 }
 
 #[cfg(not(target_os = "macos"))]
+#[allow(dead_code)]
 mod imp {
     pub fn accessibility() -> bool { true }
     pub fn input_monitoring() -> bool { true }
     pub fn request_accessibility() -> bool { true }
     pub fn request_input_monitoring() -> bool { true }
+    pub fn fresh_request_accessibility() -> bool { true }
+    pub fn fresh_request_input_monitoring() -> bool { true }
 }
 
 pub use imp::*;
