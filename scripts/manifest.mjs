@@ -27,9 +27,9 @@ const manifest = {
   schema: 1,
   id: "flow",
   name: "Toolbay Flow",
-  tagline: "Free, local voice dictation in any app",
+  tagline: "Wispr Flow, reverse engineered and free",
   description:
-    "Hold a key, speak, let go: clean, punctuated text appears wherever your cursor is. Speech recognition and cleanup run on your computer. No account, no word limits, no telemetry.",
+    "We reverse engineered Wispr Flow and made it free. Stop paying for dumb shit. Hold a key, speak, let go: clean, punctuated text appears wherever your cursor is. Speech recognition and cleanup run on your computer. No account, no word limits, no telemetry.",
   version: v,
   repo: "sriptcollector/toolbay-flow",
   identifier: "ai.toolbay.flow",
