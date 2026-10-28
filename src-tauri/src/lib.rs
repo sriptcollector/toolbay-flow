@@ -99,11 +99,10 @@ fn create_hub(app: &AppHandle, visible: bool) -> tauri::Result<()> {
     });
     let w2 = w.clone();
     w.on_window_event(move |ev| {
-        if let tauri::WindowEvent::CloseRequested { api, .. } = ev {
-            // Closing the hub keeps Flow running in the tray.
-            api.prevent_close();
-            let _ = w2.hide();
-            hub::write_state(w2.app_handle());
+        if let tauri::WindowEvent::CloseRequested { .. } = ev {
+            // Nothing runs in the background: closing the main window quits Flow,
+            // bar and tray included.
+            hub::quit(w2.app_handle());
         }
     });
     Ok(())
@@ -307,9 +306,15 @@ pub fn run() {
             app.manage(st.clone());
             sync::flow::start(st.clone());
 
+            // No launch at login: remove any login item / Run key an older version made.
+            {
+                use tauri_plugin_autostart::ManagerExt;
+                let _ = handle.autolaunch().disable();
+            }
+
             let s = st.settings.read().clone();
-            let hidden = std::env::args().any(|a| a == "--hidden") && s.onboarded;
-            create_hub(&handle, !hidden)?;
+            // Always show the main window at launch (an old `--hidden` flag is ignored).
+            create_hub(&handle, true)?;
             create_bar(&handle, s.show_bar && s.onboarded)?;
             bar_loop(handle.clone());
 
@@ -409,12 +414,9 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building Toolbay Flow")
-        .run(|_app, ev| {
-            if let tauri::RunEvent::ExitRequested { code, api, .. } = ev {
-                // Keep running in the tray when the last window hides; real quits pass a code.
-                if code.is_none() {
-                    api.prevent_exit();
-                }
+        .run(|app, ev| {
+            if let tauri::RunEvent::Exit = ev {
+                hub::clear_state(app);
             }
         });
 }

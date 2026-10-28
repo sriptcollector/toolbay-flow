@@ -530,7 +530,7 @@ function Done({ back, finish }: { back: () => void; finish: () => void }) {
   return (
     <div className="ob-card">
       <h1>You're all set</h1>
-      <p>Toolbay Flow lives in your tray and in the small bar at the bottom of your screen.</p>
+      <p>Keep Toolbay Flow open while you dictate. The small bar at the bottom of your screen shows when it is listening.</p>
       <div className="card summary">
         <div className="row">
           <span>Dictate</span>

@@ -41,9 +41,9 @@ pub fn init(dir: &Path) {
     }));
     #[cfg(windows)]
     unsafe {
-        // Windows restarts Flow if it crashes or hangs (after it has run for a minute).
+        // Windows reopens Flow (window shown) if it crashes or hangs (after it has run for a minute).
         use windows::Win32::System::Recovery::{RegisterApplicationRestart, REGISTER_APPLICATION_RESTART_FLAGS};
-        let _ = RegisterApplicationRestart(windows::core::w!("--hidden"), REGISTER_APPLICATION_RESTART_FLAGS(0));
+        let _ = RegisterApplicationRestart(windows::core::PCWSTR::null(), REGISTER_APPLICATION_RESTART_FLAGS(0));
     }
     log::info!("Toolbay Flow {} starting", env!("CARGO_PKG_VERSION"));
 }

@@ -129,7 +129,7 @@ export default function Shortcuts() {
   return (
     <Page
       title="Shortcuts"
-      sub="Click a shortcut, then press the keys you want. Changes work right away, even while Toolbay Flow is hidden in the tray. Modifier-only combos like Ctrl + Win or Right Alt work too."
+      sub="Click a shortcut, then press the keys you want. Changes work right away, even while the Toolbay Flow window is minimized. Modifier-only combos like Ctrl + Win or Right Alt work too."
       actions={
         <button className="btn" onClick={() => save({ shortcuts: defaults })}>
           Reset all to defaults

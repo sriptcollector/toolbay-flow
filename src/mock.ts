@@ -7,7 +7,6 @@ const iso = (minAgo: number) => new Date(now - minAgo * 60000).toISOString();
 
 const settings = {
   onboarded: !location.search.includes("onboarding"),
-  launch_at_login: true,
   show_bar: true,
   sounds: true,
   model_mode: "auto",

@@ -32,7 +32,6 @@ export interface Transform {
 }
 export interface Settings {
   onboarded: boolean;
-  launch_at_login: boolean;
   show_bar: boolean;
   sounds: boolean;
   microphone: string | null;

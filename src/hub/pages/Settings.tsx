@@ -32,9 +32,6 @@ export default function SettingsPage({ go }: { go: (p: string) => void }) {
             <option value="system">Match my computer</option>
           </select>
         </Row>
-        <Row title="Launch at login" desc="Start Toolbay Flow quietly in the tray when you sign in.">
-          <Toggle on={s.launch_at_login} onChange={(v) => save({ launch_at_login: v })} />
-        </Row>
         <ShortcutToggle />
         <Row title="Show the dictation bar" desc="The small pill at the bottom of your screen.">
           <Toggle on={s.show_bar} onChange={(v) => save({ show_bar: v })} />
@@ -187,7 +184,7 @@ export default function SettingsPage({ go }: { go: (p: string) => void }) {
             Start setup
           </button>
         </Row>
-        <Row title="Quit Toolbay Flow" desc="Closing this window keeps Toolbay Flow running in the tray.">
+        <Row title="Quit Toolbay Flow" desc="Closing this window also quits Toolbay Flow. Nothing keeps running in the background.">
           <button className="btn" onClick={() => api.quit()}>
             Quit
           </button>

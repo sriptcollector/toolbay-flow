@@ -90,6 +90,7 @@ pub struct Transform {
 #[serde(default)]
 pub struct Settings {
     pub onboarded: bool,
+    /// Ignored: Flow never launches at login. Kept so saved settings still load.
     pub launch_at_login: bool,
     pub show_bar: bool,
     pub sounds: bool,
@@ -151,7 +152,7 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             onboarded: false,
-            launch_at_login: true,
+            launch_at_login: false,
             show_bar: true,
             sounds: true,
             microphone: None,

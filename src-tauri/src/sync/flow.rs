@@ -25,7 +25,6 @@ const HISTORY_LIMIT: i64 = 50;
 
 /// Settings fields that follow the person to every computer.
 const SETTINGS: &[&str] = &[
-    "launch_at_login",
     "show_bar",
     "sounds",
     "language",

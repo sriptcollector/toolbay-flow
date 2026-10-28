@@ -1363,13 +1363,10 @@ pub fn apply_settings(st: &St, new: Settings) -> Result<()> {
         }
     }
     {
+        // Flow never launches at login; `launch_at_login` is kept only so old
+        // settings files still load, and is ignored.
         use tauri_plugin_autostart::ManagerExt;
-        let al = st.app.autolaunch();
-        if new.launch_at_login {
-            let _ = al.enable();
-        } else {
-            let _ = al.disable();
-        }
+        let _ = st.app.autolaunch().disable();
     }
     if let Some(bar) = st.app.get_webview_window("bar") {
         // A snoozed bar keeps its window (for the "hidden for an hour" notice);

@@ -3,8 +3,8 @@
 //!
 //! Control: the hub (or anyone) runs `toolbay-flow.exe --show | --hide | --quit`.
 //! Flow is single-instance, so that second process forwards its arguments to the
-//! running one and exits. While hidden, Flow keeps working from the tray and the
-//! dictation hotkeys stay live.
+//! running one and exits. `--hide` minimizes the window; nothing runs in the
+//! background, so closing the main window quits Flow.
 //!
 //! State: `<app data>/running.json` = {pid, version, visible, window, updatedAt, hub}, rewritten on
 //! every show/hide and removed on quit.
@@ -17,10 +17,10 @@ pub fn handle_args(app: &AppHandle, args: &[String]) {
     if args.iter().any(|a| a == "--quit") {
         quit(app);
     } else if args.iter().any(|a| a == "--hide") {
+        // Minimize, never hide: a hidden window would leave Flow running unseen.
         if let Some(w) = app.get_webview_window("main") {
-            let _ = w.hide();
+            let _ = w.minimize();
         }
-        crate::WANT_VISIBLE.store(false, std::sync::atomic::Ordering::SeqCst);
         write_state(app);
     } else {
         crate::show_hub(app, None);
@@ -28,8 +28,13 @@ pub fn handle_args(app: &AppHandle, args: &[String]) {
 }
 
 pub fn quit(app: &AppHandle) {
-    let _ = std::fs::remove_file(state_path(app));
+    clear_state(app);
     app.exit(0);
+}
+
+/// Removes running.json (the app is no longer running).
+pub fn clear_state(app: &AppHandle) {
+    let _ = std::fs::remove_file(state_path(app));
 }
 
 fn state_path(app: &AppHandle) -> PathBuf {
