@@ -403,6 +403,7 @@ pub fn run() {
             commands::sync_status,
             commands::send_feedback,
             commands::sync_now,
+            commands::sync_signed_in,
             commands::sync_sign_in,
             commands::sync_delete_remote,
             commands::set_desktop_shortcut,

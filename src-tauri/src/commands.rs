@@ -349,6 +349,13 @@ pub fn sync_status() -> crate::sync::Status {
     crate::sync::flow::get().map(|s| s.status()).unwrap_or_default()
 }
 
+/// A Toolbay sign-in exists on this computer (no network). The app asks the
+/// one-time sync question only then.
+#[tauri::command]
+pub fn sync_signed_in() -> bool {
+    crate::sync::signed_in_here()
+}
+
 #[tauri::command]
 pub async fn sync_now() -> crate::sync::Status {
     let Some(s) = crate::sync::flow::get() else { return Default::default() };
@@ -370,12 +377,12 @@ pub async fn sync_sign_in(app: AppHandle) -> R<()> {
         for _ in 0..60 {
             tokio::time::sleep(std::time::Duration::from_secs(4)).await;
             if crate::sync::signed_in_here() {
+                // Signing in alone sends nothing: this only syncs if the person
+                // already turned sync on (sync_once checks the setting).
                 if let Some(s) = crate::sync::flow::get() {
                     s.sync_once().await;
-                    if s.status().account.is_some() {
-                        break;
-                    }
                 }
+                break;
             }
         }
     });

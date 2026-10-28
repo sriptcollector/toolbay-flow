@@ -150,7 +150,7 @@ function AboutYou({ next, back }: StepProps) {
   return (
     <div className="ob-card wide">
       <h1>Tell us about yourself</h1>
-      <p>This helps Toolbay Flow pick good defaults. It stays on this computer.</p>
+      <p>This helps Toolbay Flow pick good defaults. It's kept on this computer, and only goes to your Toolbay account if you turn on sync later.</p>
       <h4>What do you do for work?</h4>
       <Chips options={ROLES.map((r) => [r, r])} value={p.role ?? []} onChange={(v) => set({ role: v })} />
       <h4>Where did you hear about Toolbay Flow?</h4>
@@ -193,8 +193,10 @@ function Privacy({ next, back }: StepProps) {
   if (!s) return null;
   return (
     <div className="ob-card">
-      <h1>Your voice stays on this computer</h1>
-      <p>Speech recognition and cleanup run on your own computer with open models. Toolbay Flow has no servers, no account and no analytics.</p>
+      <h1>Your voice turns into text on this computer</h1>
+      <p>
+        Speech recognition and cleanup run on your own computer with open models. Nothing is sent anywhere unless you turn on sync or a cloud AI option. No analytics.
+      </p>
       <div className="card">
         <div className="row">
           <div className="row-text">
@@ -206,7 +208,7 @@ function Privacy({ next, back }: StepProps) {
         <div className="row">
           <div className="row-text">
             <div className="row-title">Keep a history of my dictations</div>
-            <div className="row-desc">Kept on this computer so you can copy or fix past text.</div>
+            <div className="row-desc">Kept on this computer so you can copy or fix past text. Only synced if you turn that on in Settings.</div>
           </div>
           <Toggle on={s.data_policy !== "never_store"} onChange={(v) => save({ data_policy: v ? "store_normally" : "never_store" })} />
         </div>

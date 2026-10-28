@@ -1343,8 +1343,13 @@ pub fn mic_test(st: &St, on: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn apply_settings(st: &St, new: Settings) -> Result<()> {
+pub fn apply_settings(st: &St, mut new: Settings) -> Result<()> {
     let old = st.settings.read().clone();
+    if new.sync_enabled {
+        // Only the person turns sync on (the sync question or the Settings
+        // toggle); it is never in the synced settings item.
+        new.sync_asked = true;
+    }
     settings::save(&st.config_dir, &new)?;
     *st.hk.shortcuts.write() = new.shortcuts.clone();
     if old.speech_model != new.speech_model || old.use_gpu != new.use_gpu {

@@ -66,6 +66,7 @@ export interface Settings {
   debug_recordings: boolean;
   appearance: "light" | "dark" | "system";
   sync_enabled: boolean;
+  sync_asked: boolean;
   sync_history: boolean;
   engine: "local" | "cloud";
   cloud_asr: CloudLlm;
@@ -206,6 +207,7 @@ export const api = {
   sendFeedback: (kind: string, text: string, debug: boolean, isPublic: boolean) => invoke<string>("send_feedback", { kind, text, debug, public: isPublic }),
   syncStatus: () => invoke<SyncStatus>("sync_status"),
   syncNow: () => invoke<SyncStatus>("sync_now"),
+  syncSignedIn: () => invoke<boolean>("sync_signed_in"),
   syncSignIn: () => invoke<void>("sync_sign_in"),
   syncDeleteRemote: () => invoke<void>("sync_delete_remote"),
   toolbayAccount: () => invoke<{ name: string; handle: string; avatar_url: string | null } | null>("toolbay_account"),

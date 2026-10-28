@@ -20,7 +20,8 @@ const settings = {
   bar_snooze_until: 0,
   debug_recordings: false,
   appearance: "light",
-  sync_enabled: true,
+  sync_enabled: false,
+  sync_asked: false,
   sync_history: false,
   engine: "local",
   cloud_asr: { base_url: "https://api.groq.com/openai/v1", api_key: "", model: "whisper-large-v3-turbo" },
@@ -134,6 +135,8 @@ export function installMocks() {
         case "sync_status":
         case "sync_now":
           return { state: "ok", account: { name: "Orion", handle: "orion" }, synced_at: iso(2), pending: 0, message: "" };
+        case "sync_signed_in":
+          return true;
         case "default_shortcuts":
           return settings.shortcuts;
         default:

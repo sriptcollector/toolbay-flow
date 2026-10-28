@@ -123,7 +123,8 @@ pub struct Settings {
     pub auto_slow_speech: bool,
     pub auto_slow_cleanup: bool,
     pub desktop_shortcut: bool,
-    /// Onboarding answers (role, where you type...). Stays on this computer.
+    /// Onboarding answers (role, where you type...). Kept on this computer; sent
+    /// to the Toolbay account only when the person turns sync on.
     pub profile: serde_json::Value,
     /// Say "press enter" at the end to send the message after pasting.
     pub press_enter_command: bool,
@@ -136,11 +137,15 @@ pub struct Settings {
     /// speech recognition with the user's own API key, OpenAI-compatible).
     pub engine: String,
     pub cloud_asr: CloudLlm,
-    /// Keep settings, dictionary and snippets in step across this person's
-    /// computers through their Toolbay account (only when signed in). On by default.
     /// "light" (default, like the original), "dark" or "system".
     pub appearance: String,
+    /// Keep settings, profile, dictionary and snippets in step across this
+    /// person's computers through their Toolbay account (toolbay.ai can read
+    /// this data). Off by default: only the person turns it on.
     pub sync_enabled: bool,
+    /// The person answered the sync question (or turned sync on themselves).
+    /// Until then sync stays off, whatever an older version saved.
+    pub sync_asked: bool,
     /// Also sync recent dictations (text only, never audio). Off by default.
     pub sync_history: bool,
     /// Shortcuts saved on the user's other platform (Mac keys on Windows and the
@@ -205,7 +210,8 @@ impl Default for Settings {
                 model: "whisper-large-v3-turbo".into(),
             },
             appearance: "light".into(),
-            sync_enabled: true,
+            sync_enabled: false,
+            sync_asked: false,
             sync_history: false,
             hotkeys_other_os: serde_json::Value::Null,
         }
@@ -283,10 +289,32 @@ pub fn path(dir: &PathBuf) -> PathBuf {
 }
 
 pub fn load(dir: &PathBuf) -> Settings {
-    std::fs::read_to_string(path(dir))
+    let mut s: Settings = std::fs::read_to_string(path(dir))
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    if migrate_sync(&mut s) {
+        // Write it back right away (no sync poke: sync is off now anyway).
+        if let Ok(b) = serde_json::to_vec_pretty(&s) {
+            let tmp = dir.join("settings.json.tmp");
+            if std::fs::write(&tmp, b).is_ok() {
+                let _ = std::fs::rename(tmp, path(dir));
+            }
+        }
+    }
+    s
+}
+
+/// One-time privacy migration: versions up to 0.4.18 turned sync on by default,
+/// so a saved `sync_enabled: true` doesn't mean the person chose it. Sync stays
+/// off until they answer the sync question or turn it on in Settings.
+/// Returns true when it changed something.
+pub fn migrate_sync(s: &mut Settings) -> bool {
+    if !s.sync_asked && s.sync_enabled {
+        s.sync_enabled = false;
+        return true;
+    }
+    false
 }
 
 pub fn save(dir: &PathBuf, s: &Settings) -> anyhow::Result<()> {
@@ -330,4 +358,32 @@ pub fn keys_label(keys: &[u32]) -> String {
     let mut k = keys.to_vec();
     k.sort_by_key(|c| (order.iter().position(|o| o == c).unwrap_or(99), *c));
     k.into_iter().map(name).collect::<Vec<_>>().join(" + ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sync_is_off_by_default() {
+        let s = Settings::default();
+        assert!(!s.sync_enabled);
+        assert!(!s.sync_asked);
+    }
+
+    #[test]
+    fn old_settings_with_sync_on_are_turned_off_once() {
+        // Saved by 0.4.18 or older: sync on by default, no sync_asked field.
+        let mut s: Settings = serde_json::from_str(r#"{"onboarded": true, "sync_enabled": true}"#).unwrap();
+        assert!(migrate_sync(&mut s));
+        assert!(!s.sync_enabled);
+        assert!(!migrate_sync(&mut s));
+    }
+
+    #[test]
+    fn a_chosen_sync_stays_on() {
+        let mut s: Settings = serde_json::from_str(r#"{"sync_enabled": true, "sync_asked": true}"#).unwrap();
+        assert!(!migrate_sync(&mut s));
+        assert!(s.sync_enabled);
+    }
 }

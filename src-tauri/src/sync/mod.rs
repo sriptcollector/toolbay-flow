@@ -10,7 +10,8 @@
 //! - works offline: changes are noticed and timestamped locally and sent later;
 //! - first sync with an account: what's in the account wins, entries only this
 //!   computer has are added to it (so a new computer needs no setup);
-//! - signed out: nothing happens, the tool keeps working locally.
+//! - signed out, or sync not turned on by the person: nothing is sent, the tool
+//!   keeps working locally ([`Store::enabled`] is checked before every request).
 //!
 //! Sign-in is the Toolbay app's: its token in the OS keychain, or the
 //! `TOOLBAY_TOKEN` it passes when it opens the tool. The token is never written
@@ -382,7 +383,9 @@ impl Syncer {
         }
         self.set_status(|s| s.state = "syncing".into());
         self.pull(l, &token).await?;
-        self.push(l, &token).await?;
+        if self.store.enabled() {
+            self.push(l, &token).await?;
+        }
         l.synced_at = Some(chrono::Utc::now());
         Ok(Some(user))
     }
@@ -474,6 +477,10 @@ impl Syncer {
             }
             let mut conflicted = false;
             for chunk in changes.chunks(200) {
+                if !self.store.enabled() {
+                    // Turned off mid-round: stop uploading right away.
+                    return Ok(());
+                }
                 let (code, body) = self.call("PUT", token, None, Some(json!({ "changes": chunk }))).await?;
                 if code == 429 {
                     return Ok(()); // busy: the next round sends it

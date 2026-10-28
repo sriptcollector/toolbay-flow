@@ -4,7 +4,7 @@
 
 <p align="center"><b>We reverse engineered Wispr Flow and made it free. Stop paying for dumb shit.</b><br>
 Hold a key, speak, let go: clean, punctuated text appears wherever your cursor is.<br>
-No account needed. No word limits. No subscription. Nothing leaves your computer.</p>
+No account needed. No word limits. No subscription. Your voice turns into text on this computer; nothing is sent anywhere unless you turn on sync or a cloud AI option.</p>
 
 <p align="center"><sub>Inspired by <img src="src/assets/inspired-by/wispr-flow.svg" height="12" alt="Wispr Flow"> Wispr Flow<br>
 Toolbay Flow is an independent open-source project and is not affiliated with or endorsed by Wispr.</sub></p>
@@ -90,10 +90,13 @@ Every shortcut can be changed in **Shortcuts**, including modifier-only combos.
   voice command, history retention (keep / 24 hours / never), keep recordings for 14 days, delete all. Flow never
   mutes or pauses your music.
 - **Updates itself** quietly when you're not dictating (or through the Toolbay app), and restarts itself after a crash.
-- **Same Flow on every computer** (optional): sign in with a Toolbay account and your settings, styles, dictionary,
-  snippets, shortcuts and engine choice sync between your Macs and PCs. Recordings and API keys never sync.
+- **Same Flow on every computer** (optional, off until you turn it on): sign in with a Toolbay account, turn on sync,
+  and your name, setup answers, settings, styles, dictionary, snippets, shortcuts and engine choice sync between your
+  Macs and PCs through toolbay.ai. Toolbay's server can read this data (it is not end-to-end encrypted). Recordings and
+  API keys never sync. Turn it off or delete the synced copy any time in Settings.
 - **Privacy**: no account needed, no telemetry. The network is only used to download the models and engines you pick,
-  to reach your own cloud provider if you choose one, and to sync settings if you sign in.
+  to check for updates, to reach your own cloud provider if you choose one, to post feedback you send, and to sync if
+  you turn sync on.
 
 ## Status
 

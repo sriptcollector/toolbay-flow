@@ -111,7 +111,7 @@ export default function SettingsPage({ go }: { go: (p: string) => void }) {
             </label>
           </div>
         )}
-        <Row title="Context awareness" desc="Read the text around your cursor in the focused app so Toolbay Flow continues it naturally. Never reads password fields. Stays on this computer.">
+        <Row title="Context awareness" desc="Read the text around your cursor in the focused app so Toolbay Flow continues it naturally. Never reads password fields. Stays on this computer, unless you pick a cloud AI option: then it goes to that provider along with your words.">
           <Toggle on={s.context_awareness} onChange={(v) => save({ context_awareness: v })} />
         </Row>
         <Row title="Command mode" desc="Hold the command shortcut to edit selected text by voice, or to ask for a reply.">
@@ -165,7 +165,7 @@ export default function SettingsPage({ go }: { go: (p: string) => void }) {
             </button>
           )}
         </Row>
-        <Row title="No telemetry" desc="Toolbay Flow never sends usage data. It only goes online to download models, to reach your own API provider if you pick one, and to sync your settings with your Toolbay account when you're signed in." />
+        <Row title="No telemetry" desc="Toolbay Flow never sends usage data. It only goes online to download models and updates, to reach your own API provider if you pick a cloud AI option, to post feedback you choose to send, and to sync with your Toolbay account if you turn sync on." />
       </Section>
 
       <Section title="About">
@@ -205,26 +205,49 @@ function ago(iso: string | null) {
   return new Date(iso).toLocaleString();
 }
 
-/** Toolbay account: settings, dictionary and snippets follow you to every computer. */
+/**
+ * Toolbay account sync. Off until the person turns it on. When on, the synced
+ * data sits on toolbay.ai where Toolbay's server can read it (not end-to-end
+ * encrypted), and the copy says so.
+ */
 function AccountSync() {
   const [s, save] = useSettings();
   const [st, setSt] = useState<SyncStatus | null>(null);
+  const [signedIn, setSignedIn] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const [deleted, setDeleted] = useState(false);
   const [err, setErr] = useState("");
   useEffect(() => {
     api.syncStatus().then(setSt);
+    api.syncSignedIn().then(setSignedIn).catch(() => {});
     const off = on<SyncStatus>("sync-status", (x) => {
       setSt(x);
       if (x.account) setWaiting(false);
     });
-    const focus = () => api.syncNow().then(setSt);
+    const focus = () => {
+      api.syncSignedIn().then(setSignedIn).catch(() => {});
+      // Does nothing (no network) while sync is off.
+      api.syncNow().then(setSt);
+    };
     window.addEventListener("focus", focus);
     return () => {
       off();
       window.removeEventListener("focus", focus);
     };
   }, []);
+  useEffect(() => {
+    if (!waiting) return;
+    const t = setInterval(
+      () =>
+        api.syncSignedIn().then((v) => {
+          setSignedIn(v);
+          if (v) setWaiting(false);
+        }),
+      3000,
+    );
+    return () => clearInterval(t);
+  }, [waiting]);
   if (!s || !st) return null;
   const who = st.account ? st.account.name || (st.account.handle ? `@${st.account.handle}` : "your Toolbay account") : "";
   const signIn = () => {
@@ -235,16 +258,22 @@ function AccountSync() {
       setErr(String(e));
     });
   };
+  const toggle = (v: boolean) => {
+    setDeleted(false);
+    save({ sync_enabled: v, sync_asked: true }).then(() => {
+      if (v) api.syncNow().then(setSt);
+    });
+  };
   return (
     <Section title="Toolbay account">
-      {!st.account && st.state !== "offline" ? (
+      {!signedIn && !st.account ? (
         <Row
-          title="Use Toolbay Flow the same way on all your computers"
+          title="Sync across your computers (optional)"
           desc={
             err ||
             (waiting
               ? "Finish signing in with the Toolbay app. Toolbay Flow picks it up by itself."
-              : "Sign in once with your Toolbay account and your settings, styles, dictionary, snippets and shortcuts follow you to every Mac and PC. Optional: Toolbay Flow works fully without it.")
+              : "Sign in with your Toolbay account, then turn on sync if you want your settings, dictionary and snippets on every Mac and PC. Signing in alone sends nothing. Toolbay Flow works fully without it.")
           }
         >
           <button className="btn primary" onClick={signIn} disabled={waiting}>
@@ -254,10 +283,10 @@ function AccountSync() {
       ) : (
         <>
           <Row
-            title={who ? `Signed in as ${who}` : "Toolbay account"}
+            title={who ? `Signed in as ${who}` : "Signed in to Toolbay"}
             desc={
               !s.sync_enabled
-                ? "Sync is off on this computer."
+                ? "Sync is off. Nothing is synced to Toolbay from this computer."
                 : st.message ||
                   (st.state === "syncing"
                     ? "Syncing…"
@@ -274,16 +303,26 @@ function AccountSync() {
           </Row>
           <Row
             title="Sync across my computers"
-            desc="Settings, styles, dictionary, snippets, shortcuts and engine choice. Your API keys and recordings never leave this computer."
+            desc="Sends your name, setup answers, settings, styles, shortcuts, transforms, dictionary and snippets to your Toolbay account on toolbay.ai. Toolbay's server can read this data (it is not end-to-end encrypted). Your recordings and API keys are never sent. Off unless you turn it on."
           >
-            <Toggle on={s.sync_enabled} onChange={(v) => save({ sync_enabled: v })} />
+            <Toggle on={s.sync_enabled} onChange={toggle} />
           </Row>
           {s.sync_enabled && (
-            <Row title="Also sync my recent dictations" desc="Your last 50 dictations (text only, never audio) show up on your other computers too.">
+            <Row
+              title="Also sync my recent dictations"
+              desc="Also sends the text of your last 50 dictations (never audio) to toolbay.ai, where Toolbay's server can read it, so they show up on your other computers."
+            >
               <Toggle on={s.sync_history} onChange={(v) => save({ sync_history: v })} />
             </Row>
           )}
-          <Row title="Remove synced copy" desc="Deletes Toolbay Flow's settings from your Toolbay account and turns sync off here. Everything stays on this computer.">
+          <Row
+            title="Delete my synced data from Toolbay"
+            desc={
+              deleted
+                ? "Done. Toolbay no longer has a synced copy, and sync is off. Everything is still on this computer."
+                : "Deletes everything Toolbay Flow synced from your Toolbay account and turns sync off. Your copy on this computer is kept."
+            }
+          >
             {confirm ? (
               <>
                 <button
@@ -291,14 +330,17 @@ function AccountSync() {
                   onClick={() =>
                     api
                       .syncDeleteRemote()
-                      .then(() => setConfirm(false))
+                      .then(() => {
+                        setConfirm(false);
+                        setDeleted(true);
+                      })
                       .catch((e) => {
                         setConfirm(false);
                         setErr(String(e));
                       })
                   }
                 >
-                  Remove
+                  Delete
                 </button>
                 <button className="link" onClick={() => setConfirm(false)}>
                   Keep it
@@ -306,7 +348,7 @@ function AccountSync() {
               </>
             ) : (
               <button className="btn" onClick={() => setConfirm(true)}>
-                Remove…
+                Delete…
               </button>
             )}
           </Row>

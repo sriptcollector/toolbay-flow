@@ -219,7 +219,7 @@ function EngineChoice() {
       <div className="engines">
         <button className={`engine ${!cloud ? "sel" : ""}`} onClick={() => save({ engine: "local", llm_provider: "local" })}>
           <b>On this computer</b>
-          <span>Private and free. Nothing leaves your computer. Fast on most PCs.</span>
+          <span>Free. Your voice and text are processed on this computer, not sent to an AI provider. Fast on most PCs.</span>
           <em>Default</em>
         </button>
         <button className={`engine ${cloud ? "sel" : ""}`} onClick={() => !cloud && s.cloud_asr.api_key && useCloud(s.cloud_asr.api_key)}>
@@ -230,7 +230,7 @@ function EngineChoice() {
       </div>
       <div className="pad">
         <p className="muted small">
-          With the cloud engine, your recordings and text are sent to the provider you pick, using your own account. Toolbay never sees them. The provider has its own
+          With the cloud engine, your recordings and text are sent to the provider you pick, using your own account. Toolbay doesn't see them. The provider has its own
           privacy policy and may charge for use (Groq has a free tier). If the cloud can't be reached, Flow uses the local engine for that dictation. Flow itself stays
           free.
         </p>

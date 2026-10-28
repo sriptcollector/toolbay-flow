@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useState } from "react";
 import { MessageSquareHeart, Mic, ChartColumnBig, BookA, Scissors, Type, WandSparkles, NotebookPen, Cpu, Keyboard, Settings as Gear, CircleHelp, PanelLeft, CircleUserRound, Minus, Square, X } from "lucide-react";
 import { api, on } from "../api";
-import { Toaster, useSettings } from "./ui";
+import { Modal, Toaster, useSettings } from "./ui";
 import Onboarding from "./Onboarding";
 import { askedThisRun, clearPermissionResume, markPermissionAsked, resumedFrom } from "./permResume";
 import Feedback from "./Feedback";
@@ -160,8 +160,51 @@ export default function Hub() {
         <Current key={page} go={(p: string) => (p === "feedback" ? setFeedback(true) : setPage(p as PageId))} />
       </main>
       {feedback && <Feedback onClose={() => setFeedback(false)} />}
+      {!settings.sync_asked && <SyncQuestion />}
       <Toaster />
     </div>
+  );
+}
+
+/**
+ * The one-time sync question, for people signed in to Toolbay. Sync is off until
+ * they pick "Turn on sync" here or turn it on in Settings. Closing the box keeps
+ * it off and asks again next time.
+ */
+function SyncQuestion() {
+  const [, save] = useSettings();
+  const [signedIn, setSignedIn] = useState(false);
+  const [closed, setClosed] = useState(false);
+  useEffect(() => {
+    const check = () => api.syncSignedIn().then(setSignedIn).catch(() => {});
+    check();
+    window.addEventListener("focus", check);
+    return () => window.removeEventListener("focus", check);
+  }, []);
+  if (!signedIn || closed) return null;
+  return (
+    <Modal
+      title="Sync across your computers?"
+      onClose={() => setClosed(true)}
+      actions={
+        <>
+          <button className="btn" onClick={() => save({ sync_enabled: false, sync_asked: true }).then(() => setClosed(true))}>
+            Keep it on this computer
+          </button>
+          <button className="btn primary" onClick={() => save({ sync_enabled: true, sync_asked: true }).then(() => (setClosed(true), api.syncNow()))}>
+            Turn on sync
+          </button>
+        </>
+      }
+    >
+      <p>
+        Sync your dictionary and snippets across your computers through your Toolbay account? Toolbay's server can read this data.
+      </p>
+      <p className="muted small">
+        Sync sends your name, setup answers, settings, styles, shortcuts, transforms, dictionary and snippets to toolbay.ai. It is not end-to-end encrypted. Your recordings and API
+        keys are never sent. Nothing is sent unless you turn it on, and you can turn it off or delete the synced copy any time in Settings.
+      </p>
+    </Modal>
   );
 }
 

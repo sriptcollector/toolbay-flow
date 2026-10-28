@@ -88,7 +88,7 @@ export default function Feedback({ onClose }: { onClose: () => void }) {
       )}
       <p className="muted small" style={{ margin: 0 }}>
         {priv
-          ? "Sent privately to the maker with your app version, models and recent warnings. Never your dictations, recordings or keys."
+          ? "Sent to the maker on toolbay.ai (not posted publicly) with your app version, models and recent warnings. Never your dictations, recordings or keys."
           : "Posted in the Toolbay Flow community on toolbay.ai under your Toolbay name."}
       </p>
       {needSignIn && (
