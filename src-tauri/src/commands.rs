@@ -365,7 +365,7 @@ pub async fn sync_now() -> crate::sync::Status {
 
 /// Sign-in belongs to the Toolbay app: toolbay://signin asks it to run its own
 /// browser sign-in (or just comes forward if already signed in). Flow then picks
-/// up that sign-in from the keychain.
+/// up that sign-in by itself.
 #[tauri::command]
 pub async fn sync_sign_in(app: AppHandle) -> R<()> {
     use tauri_plugin_opener::OpenerExt;

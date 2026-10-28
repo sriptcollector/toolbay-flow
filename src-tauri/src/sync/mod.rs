@@ -13,8 +13,9 @@
 //! - signed out, or sync not turned on by the person: nothing is sent, the tool
 //!   keeps working locally ([`Store::enabled`] is checked before every request).
 //!
-//! Sign-in is the Toolbay app's: its token in the OS keychain, or the
-//! `TOOLBAY_TOKEN` it passes when it opens the tool. The token is never written
+//! Sign-in is the Toolbay app's: its token (Windows Credential Manager, or a
+//! private file on macOS, never the macOS keychain), or the `TOOLBAY_TOKEN` it
+//! passes when it opens the tool. The token is never written
 //! anywhere by this code. Only toolbay.ai is contacted.
 
 pub mod flow;
@@ -114,11 +115,29 @@ fn client() -> &'static reqwest::Client {
     &C
 }
 
+/// The Toolbay app's saved sign-in on this computer. Windows: Credential Manager
+/// (service "ai.toolbay.desktop", user "session"). macOS: the 0600 file
+/// `~/Library/Application Support/ai.toolbay.desktop/session` that the Toolbay
+/// app writes; the keychain is never touched on macOS (ad-hoc signed updates
+/// would make macOS ask for the login password every time).
+fn hub_token() -> Option<String> {
+    #[cfg(windows)]
+    {
+        keyring::Entry::new("ai.toolbay.desktop", "session").and_then(|e| e.get_password()).ok().map(|t| t.trim().to_string()).filter(|t| !t.is_empty())
+    }
+    #[cfg(not(windows))]
+    {
+        let home = std::env::var_os("HOME")?;
+        let p = std::path::PathBuf::from(home).join("Library/Application Support/ai.toolbay.desktop/session");
+        std::fs::read_to_string(p).ok().map(|t| t.trim().to_string()).filter(|t| !t.is_empty())
+    }
+}
+
 /// Tokens to try: the Toolbay app's current sign-in first (it changes when the
 /// person signs in or out there), then the one it passed at launch.
 fn tokens() -> Vec<String> {
     let mut v = vec![];
-    if let Ok(t) = keyring::Entry::new("ai.toolbay.desktop", "session").and_then(|e| e.get_password()) {
+    if let Some(t) = hub_token() {
         v.push(t);
     }
     if let Ok(t) = std::env::var("TOOLBAY_TOKEN") {
