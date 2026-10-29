@@ -4,15 +4,14 @@
 use anyhow::Result;
 use std::time::Duration;
 
-/// Returns false when the text could only be copied (macOS hasn't allowed
-/// Accessibility, so the paste keystroke would be dropped): it stays on the
-/// clipboard for the person to paste.
+/// Returns false when the text was only copied (always on macOS, where Flow never
+/// sends keystrokes): it stays on the clipboard for the person to paste.
 pub fn paste(text: &str, restore: bool) -> Result<bool> {
     platform::paste(text, restore)
 }
 
 /// What the bar says when `paste` could only copy.
-pub const COPIED_ONLY: &str = "Copied, press ⌘V to paste. Allow Accessibility so Toolbay Flow can paste for you.";
+pub const COPIED_ONLY: &str = "Copied, press ⌘V to paste.";
 
 /// Sends a single Enter key press (the "press enter" voice command).
 pub fn press_enter() {
@@ -229,74 +228,27 @@ mod platform {
     }
 }
 
+/// macOS: Flow never asks for Accessibility and never types or presses keys for you (posting
+/// keystrokes needs Accessibility, and an app holding it can freeze the whole Mac's keyboard).
+/// The text goes on the clipboard and the bar says "Copied, press ⌘V".
 #[cfg(target_os = "macos")]
 mod platform {
     use super::*;
-    use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation};
-    use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
-
-    fn cmd_key(keycode: u16) {
-        let Ok(src) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else { return };
-        if let (Ok(d), Ok(u)) = (CGEvent::new_keyboard_event(src.clone(), keycode, true), CGEvent::new_keyboard_event(src, keycode, false)) {
-            d.set_flags(CGEventFlags::CGEventFlagCommand);
-            u.set_flags(CGEventFlags::CGEventFlagCommand);
-            d.post(CGEventTapLocation::HID);
-            u.post(CGEventTapLocation::HID);
-        }
-    }
 
     pub fn set_text(text: &str) -> Result<()> {
         arboard::Clipboard::new()?.set_text(text.to_string())?;
         Ok(())
     }
 
-    pub fn paste(text: &str, restore_after: bool) -> Result<bool> {
-        let mut cb = arboard::Clipboard::new()?;
-        if !crate::macperm::accessibility() {
-            // macOS drops a Cmd+V from an app without Accessibility: leave the text on
-            // the clipboard (never put the old one back) so it can be pasted by hand.
-            cb.set_text(text.to_string())?;
-            return Ok(false);
-        }
-        let prev = if restore_after { cb.get_text().ok() } else { None };
-        cb.set_text(text.to_string())?;
-        std::thread::sleep(Duration::from_millis(30));
-        cmd_key(9); // V
-        if let Some(prev) = prev {
-            let ours = text.to_string();
-            std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(700));
-                if let Ok(mut cb) = arboard::Clipboard::new() {
-                    // Only if the clipboard still holds the dictation: never replace
-                    // something the person copied meanwhile.
-                    if cb.get_text().ok().as_deref() == Some(ours.as_str()) {
-                        let _ = cb.set_text(prev);
-                    }
-                }
-            });
-        }
-        Ok(true)
+    pub fn paste(text: &str, _restore_after: bool) -> Result<bool> {
+        set_text(text)?;
+        Ok(false)
     }
 
-    pub fn press_enter() {
-        let Ok(src) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else { return };
-        if let (Ok(d), Ok(u)) = (CGEvent::new_keyboard_event(src.clone(), 36, true), CGEvent::new_keyboard_event(src, 36, false)) {
-            d.post(CGEventTapLocation::HID);
-            u.post(CGEventTapLocation::HID);
-        }
-    }
+    pub fn press_enter() {}
 
     pub fn copy_selection() -> Option<String> {
-        let mut cb = arboard::Clipboard::new().ok()?;
-        let prev = cb.get_text().ok();
-        let _ = cb.set_text(String::new());
-        cmd_key(8); // C
-        std::thread::sleep(Duration::from_millis(150));
-        let got = cb.get_text().ok().filter(|s| !s.is_empty());
-        if let Some(p) = prev {
-            let _ = cb.set_text(p);
-        }
-        got
+        None
     }
 }
 

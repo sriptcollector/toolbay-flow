@@ -1,8 +1,12 @@
-//! macOS key listener: an active CGEventTap, the way Wispr Flow does it. An active tap is
-//! covered by Accessibility alone (a listen-only tap needs Input Monitoring too, a second
-//! permission), so setup asks for the microphone and Accessibility only. Keys pass through
-//! untouched, except Fn when it's part of a shortcut: that press is held back, so macOS doesn't
-//! also open the emoji picker or its own dictation, and nobody has to change "Press 🌐 key to".
+//! macOS key listener: a LISTEN-ONLY CGEventTap (Input Monitoring permission, never
+//! Accessibility). It only gets copies of key events after the system has delivered them, so it
+//! can't hold, change or delay a key press: if Flow stalls, the Mac's keyboard doesn't.
+//! (Flow used to install an active tap in front of every key, which needs Accessibility; a slow
+//! callback there froze typing on the whole Mac.) The callback does nothing but queue the key;
+//! the matching runs on another thread.
+//!
+//! Because the tap can't hold Fn back, macOS still acts on Fn too; Settings explains "Press 🌐
+//! key to: Do Nothing" (see macperm::fn_key_usage).
 //!
 //! Flow's own tap rather than rdev: rdev looks up the keyboard layout (TISCopyCurrentKeyboard
 //! InputSource) on its listener thread for every key, which recent macOS aborts the app for
@@ -110,30 +114,35 @@ fn normalize(code: u32) -> u32 {
     }
 }
 
-/// Fn is held back from macOS while a shortcut uses it (and Flow is on, not recording one).
-fn fn_is_shortcut(shared: &Shared) -> bool {
-    shared.enabled.load(Ordering::Relaxed)
-        && !shared.recording.load(Ordering::Relaxed)
-        && shared.shortcuts.read().iter().any(|s| s.keys.contains(&FN))
-}
-
 pub fn start(shared: Arc<Shared>, sink: Sink) {
-    let fn_check = shared.clone();
     let m = Arc::new(Mutex::new(Matcher::new(shared, sink)));
     start_watchdog(m.clone());
+
+    // Keys go through a channel: the tap's callback never waits on a lock or on Flow's work.
+    let (tx, rx) = std::sync::mpsc::channel::<(u32, bool)>();
+    let worker = m.clone();
+    std::thread::Builder::new()
+        .name("hotkeys-match".into())
+        .spawn(move || {
+            for (code, down) in rx {
+                note(code, down);
+                worker.lock().key(normalize(code), down);
+            }
+        })
+        .ok();
+
     std::thread::Builder::new()
         .name("hotkeys".into())
         .spawn(move || {
-            // Without permission the tap can't be created. Keep trying instead of giving up, so
-            // the shortcut starts working as soon as it's switched on, without a restart.
+            // Without Input Monitoring the tap can't be created. Keep trying instead of giving up,
+            // so the shortcut starts working as soon as it's switched on, without a restart.
             let mut logged = false;
             loop {
-                let m2 = m.clone();
-                let fn_check = fn_check.clone();
+                let tx = tx.clone();
                 let tap = CGEventTap::new(
-                    CGEventTapLocation::HID,
-                    CGEventTapPlacement::HeadInsertEventTap,
-                    CGEventTapOptions::Default,
+                    CGEventTapLocation::Session,
+                    CGEventTapPlacement::TailAppendEventTap,
+                    CGEventTapOptions::ListenOnly,
                     vec![CGEventType::KeyDown, CGEventType::KeyUp, CGEventType::FlagsChanged],
                     move |_proxy, ty, ev| {
                         match ty {
@@ -145,29 +154,20 @@ pub fn start(shared: Arc<Shared>, sink: Sink) {
                                 }
                             }
                             CGEventType::KeyDown | CGEventType::KeyUp => {
-                                if ev.get_integer_value_field(EventField::KEYBOARD_EVENT_AUTOREPEAT) != 0 {
-                                    return None;
+                                if ev.get_integer_value_field(EventField::KEYBOARD_EVENT_AUTOREPEAT) == 0 {
+                                    let code = ev.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE) as u32;
+                                    let _ = tx.send((code, matches!(ty, CGEventType::KeyDown)));
                                 }
-                                let code = ev.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE) as u32;
-                                let down = matches!(ty, CGEventType::KeyDown);
-                                note(code, down);
-                                m2.lock().key(normalize(code), down);
                             }
                             CGEventType::FlagsChanged => {
                                 let code = ev.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE) as u32;
                                 if let Some(flag) = modifier_flag(code) {
-                                    let down = ev.get_flags().contains(flag);
-                                    note(code, down);
-                                    m2.lock().key(normalize(code), down);
-                                    if normalize(code) == FN && fn_is_shortcut(&fn_check) {
-                                        // A null event is dropped: macOS never sees this Fn press.
-                                        ev.set_type(CGEventType::Null);
-                                    }
+                                    let _ = tx.send((code, ev.get_flags().contains(flag)));
                                 }
                             }
                             _ => {}
                         }
-                        // None passes the event on (possibly turned into a null event above).
+                        // A listen-only tap can't change anything; the event has already gone on.
                         None
                     },
                 );
@@ -190,7 +190,7 @@ pub fn start(shared: Arc<Shared>, sink: Sink) {
                     },
                     Err(()) => {
                         if !logged {
-                            log::warn!("macOS key listener waiting for Accessibility permission");
+                            log::warn!("macOS key listener waiting for Input Monitoring permission");
                             logged = true;
                         }
                     }

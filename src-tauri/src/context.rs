@@ -192,52 +192,32 @@ mod platform {
 
 #[cfg(target_os = "macos")]
 mod platform {
-    //! macOS Accessibility (AXUIElement). Requires the Accessibility permission.
+    //! macOS: only the app in front (NSWorkspace, no permission). Flow never uses Accessibility
+    //! on a Mac, so it doesn't read text fields, selections or window titles there.
     use super::{friendly, FocusContext};
-    use accessibility_sys::*;
-    use core_foundation::base::{CFType, TCFType};
-    use core_foundation::string::CFString;
-    use core_foundation_sys::base::{CFRange, CFTypeRef};
-    use std::ptr;
-
-    unsafe fn attr(el: AXUIElementRef, name: &str) -> Option<CFType> {
-        let key = CFString::new(name);
-        let mut v: CFTypeRef = ptr::null();
-        let err = AXUIElementCopyAttributeValue(el, key.as_concrete_TypeRef(), &mut v);
-        if err == kAXErrorSuccess && !v.is_null() {
-            Some(CFType::wrap_under_create_rule(v))
-        } else {
-            None
-        }
-    }
-
-    unsafe fn attr_string(el: AXUIElementRef, name: &str) -> Option<String> {
-        let v = attr(el, name)?;
-        v.downcast::<CFString>().map(|s| s.to_string())
-    }
-
-    unsafe fn focused() -> (Option<CFType>, Option<CFType>) {
-        let sys = AXUIElementCreateSystemWide();
-        let app = attr(sys, "AXFocusedApplication");
-        let el = app.as_ref().and_then(|a| attr(a.as_CFTypeRef() as AXUIElementRef, "AXFocusedUIElement"));
-        core_foundation_sys::base::CFRelease(sys as CFTypeRef);
-        (app, el)
-    }
+    use objc2::rc::Retained;
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send};
 
     pub fn window_only() -> FocusContext {
         let mut c = FocusContext::default();
         unsafe {
-            let (app, _) = focused();
+            let ws: *mut AnyObject = msg_send![class!(NSWorkspace), sharedWorkspace];
+            if ws.is_null() {
+                return c;
+            }
+            let app: Option<Retained<AnyObject>> = msg_send![ws, frontmostApplication];
             if let Some(app) = app {
-                let a = app.as_CFTypeRef() as AXUIElementRef;
-                c.app = attr_string(a, "AXTitle").unwrap_or_default();
-                c.exe = c.app.clone();
-                let mut pid = 0i32;
-                AXUIElementGetPid(a, &mut pid);
-                c.pid = pid as u32;
-                if let Some(w) = attr(a, "AXFocusedWindow") {
-                    c.window_title = attr_string(w.as_CFTypeRef() as AXUIElementRef, "AXTitle").unwrap_or_default();
+                let pid: i32 = msg_send![&*app, processIdentifier];
+                c.pid = pid.max(0) as u32;
+                let name: *mut AnyObject = msg_send![&*app, localizedName];
+                if !name.is_null() {
+                    let utf8: *const std::ffi::c_char = msg_send![name, UTF8String];
+                    if !utf8.is_null() {
+                        c.app = std::ffi::CStr::from_ptr(utf8).to_string_lossy().into_owned();
+                    }
                 }
+                c.exe = c.app.clone();
             }
         }
         if c.app.is_empty() {
@@ -246,49 +226,14 @@ mod platform {
         c
     }
 
-    pub fn capture(read_text: bool) -> FocusContext {
-        let mut c = window_only();
-        unsafe {
-            let (_, el) = focused();
-            let Some(el) = el else { return c };
-            let e = el.as_CFTypeRef() as AXUIElementRef;
-            let sub = attr_string(e, "AXSubrole").unwrap_or_default();
-            c.is_password = sub == "AXSecureTextField";
-            if c.is_password || !read_text {
-                return c;
-            }
-            let value = attr_string(e, "AXValue");
-            c.has_text_field = value.is_some();
-            c.selected = attr_string(e, "AXSelectedText").unwrap_or_default();
-            if let (Some(value), Some(r)) = (value, attr(e, "AXSelectedTextRange")) {
-                let mut range = CFRange { location: 0, length: 0 };
-                if AXValueGetValue(r.as_CFTypeRef() as AXValueRef, kAXValueTypeCFRange, &mut range as *mut _ as *mut _) {
-                    let chars: Vec<u16> = value.encode_utf16().collect();
-                    let start = (range.location as usize).min(chars.len());
-                    let end = ((range.location + range.length) as usize).min(chars.len());
-                    let b = String::from_utf16_lossy(&chars[start.saturating_sub(600)..start]);
-                    let a = String::from_utf16_lossy(&chars[end..(end + 600).min(chars.len())]);
-                    c.before = b;
-                    c.after = a;
-                }
-            }
-        }
-        c
+    pub fn capture(_read_text: bool) -> FocusContext {
+        window_only()
     }
 
     pub fn focused_text() -> Option<String> {
-        unsafe {
-            let (_, el) = focused();
-            let el = el?;
-            let e = el.as_CFTypeRef() as AXUIElementRef;
-            if attr_string(e, "AXSubrole").as_deref() == Some("AXSecureTextField") {
-                return None;
-            }
-            attr_string(e, "AXValue")
-        }
+        None
     }
 }
-
 #[cfg(not(any(windows, target_os = "macos")))]
 mod platform {
     use super::FocusContext;

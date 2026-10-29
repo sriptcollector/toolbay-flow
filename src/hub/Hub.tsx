@@ -220,8 +220,8 @@ function MacPermissionAlert() {
     const t = setInterval(check, 2000);
     return () => clearInterval(t);
   }, []);
-  // Like Wispr Flow: Accessibility covers both typing and hearing the shortcut.
-  const ok = !!p && p.accessibility;
+  // Input Monitoring lets the shortcut be heard. Flow never asks for Accessibility on a Mac.
+  const ok = !!p && p.input;
   useEffect(() => {
     if (!resumed || !ok) return;
     clearPermissionResume();
@@ -273,11 +273,24 @@ function AccessibilityAlert({
   if (ok && thanks) {
     return (
       <div className="perm-result ok" role="status">
-        Restarted. Toolbay Flow can now hear your shortcut and type for you.
+        Restarted. Toolbay Flow can now hear your shortcut.
       </div>
     );
   }
-  // Flow holds Fn back from macOS itself, so the "Press 🌐 key to" setting doesn't matter.
+  if (ok && !p.fn_free) {
+    // Flow only watches keys now, so it can't stop macOS from also acting on 🌐.
+    return (
+      <div className="perm-alert" role="alert">
+        <div>
+          <b>macOS also uses the 🌐 key</b>
+          <span>If your shortcut uses 🌐, set Keyboard › “Press 🌐 key to” to “Do Nothing” so the emoji picker doesn't open too.</span>
+        </div>
+        <button className="btn" onClick={() => api.openSystemSettings("keyboard")}>
+          Open Keyboard settings
+        </button>
+      </div>
+    );
+  }
   if (ok) return null;
   return (
     <div className="perm-alert" role="alert">
@@ -285,10 +298,10 @@ function AccessibilityAlert({
         <b>Your shortcut won't work until macOS allows Toolbay Flow</b>
         <span>
           {resumed
-            ? "Restarted, but Accessibility is still off. Switch Toolbay Flow on for it, then restart again."
+            ? "Restarted, but Input Monitoring is still off. Switch Toolbay Flow on for it, then restart again."
             : asked
               ? "Switched it on? macOS applies it after Toolbay Flow restarts. You'll come right back here."
-              : "Click Allow Accessibility, then switch Toolbay Flow on in the window that opens. If it already looks on, Flow clears the old entry so you can switch it on fresh."}
+              : "Click Allow Input Monitoring, then switch Toolbay Flow on in the window that opens. Flow only watches for your shortcut; it can never press or block a key."}
         </span>
       </div>
       {(asked || resumed) && (
@@ -296,9 +309,9 @@ function AccessibilityAlert({
           Restart Toolbay Flow
         </button>
       )}
-      {!p.accessibility && (
-        <button className="btn" onClick={() => allow("accessibility")}>
-          Allow Accessibility
+      {!p.input && (
+        <button className="btn" onClick={() => allow("input")}>
+          Allow Input Monitoring
         </button>
       )}
     </div>

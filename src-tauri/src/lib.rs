@@ -299,6 +299,19 @@ pub fn run() {
             let config_dir = app.path().app_config_dir()?;
             let data_dir = app.path().app_data_dir()?;
             logging::init(&data_dir);
+            // Flow no longer uses Accessibility on a Mac. Remove the access older versions were
+            // given (Toolbay Flow's own entry only), once, so it isn't left switched on.
+            #[cfg(target_os = "macos")]
+            {
+                let marker = data_dir.join("accessibility-removed");
+                if !marker.exists() {
+                    let _ = std::process::Command::new("/usr/bin/tccutil")
+                        .args(["reset", "Accessibility", "ai.toolbay.flow"])
+                        .status();
+                    let _ = std::fs::create_dir_all(&data_dir);
+                    let _ = std::fs::write(&marker, b"");
+                }
+            }
             let st = dictation::State::new(handle.clone(), config_dir, data_dir)?;
             app.manage(st.clone());
             sync::flow::start(st.clone());

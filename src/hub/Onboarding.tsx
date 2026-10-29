@@ -239,7 +239,7 @@ function PermCard({ icon, title, desc, ok, action, onAction }: { icon: string; t
 
 function Permissions({ next, back }: StepProps) {
   const [mic, setMic] = useState<{ ok: boolean; message: string } | null>(null);
-  const [mac, setMac] = useState<{ accessibility: boolean; input: boolean } | null>(null);
+  const [mac, setMac] = useState<{ input: boolean } | null>(null);
   const [resumed] = useState(() => resumedFrom() === "setup");
   const [asked, setAsked] = useState(askedThisRun);
   const allow = (kind: string) => {
@@ -247,7 +247,7 @@ function Permissions({ next, back }: StepProps) {
     setAsked(true);
     api.openSystemSettings(kind);
   };
-  const macOk = !isMac || mac?.accessibility;
+  const macOk = !isMac || mac?.input;
   useEffect(() => {
     if (resumed && macOk) clearPermissionResume();
   }, [resumed, macOk]);
@@ -262,7 +262,7 @@ function Permissions({ next, back }: StepProps) {
   }, []);
   return (
     <div className="ob-card wide">
-      <h1>Allow Toolbay Flow to hear you and type for you</h1>
+      <h1>Allow Toolbay Flow to hear you</h1>
       <p>{isMac ? "macOS asks you to allow these once. Click each button, then switch Toolbay Flow on in the window that opens." : "Windows needs to let apps use your microphone."}</p>
       <div className="perms">
         <PermCard
@@ -275,7 +275,7 @@ function Permissions({ next, back }: StepProps) {
         />
         {isMac && (
           <>
-            <PermCard icon="⌨️" title="Accessibility" desc="So Toolbay Flow can type the text into the app you're using." ok={mac?.accessibility ?? null} action="Allow" onAction={() => allow("accessibility")} />
+            <PermCard icon="⌨️" title="Input Monitoring" desc="So Toolbay Flow notices when you hold your shortcut. It only sees keys after your Mac has used them; it can never press or block a key. Your text lands on the clipboard: press ⌘V to paste." ok={mac?.input ?? null} action="Allow" onAction={() => allow("input")} />
           </>
         )}
       </div>
@@ -305,7 +305,7 @@ function Permissions({ next, back }: StepProps) {
           <span className="muted small">In System Settings, find Toolbay Flow in the list and turn it on. If it isn't listed, click + and pick Toolbay Flow from Applications.</span>
         </div>
       )}
-      <Nav back={back} next={next} nextLabel={mic?.ok && (!isMac || mac?.accessibility) ? "Continue" : "I've allowed it"} />
+      <Nav back={back} next={next} nextLabel={mic?.ok && (!isMac || mac?.input) ? "Continue" : "I've allowed it"} />
     </div>
   );
 }

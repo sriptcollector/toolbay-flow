@@ -227,7 +227,7 @@ export const api = {
 export interface MacPermissions {
   /** False when macOS blocks the microphone: recordings would be silent. */
   microphone: boolean;
-  accessibility: boolean;
+  /** Input Monitoring: the shortcut listener. Flow never asks for Accessibility. */
   input: boolean;
   fn_free: boolean;
 }

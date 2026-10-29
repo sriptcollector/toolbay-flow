@@ -1,6 +1,6 @@
 [package]
 name = "toolbay-flow"
-version = "0.4.21"
+version = "0.4.22"
 description = "Toolbay Flow: free, local, open-source voice dictation for any app"
 authors = ["Orion Jones"]
 license = "MIT"
@@ -69,7 +69,6 @@ objc2-foundation = "0.3"
 core-graphics = "0.24"
 core-foundation = "0.10"
 core-foundation-sys = "0.8"
-accessibility-sys = "0.1"
 arboard = "3"
 rdev = "0.5"
 
