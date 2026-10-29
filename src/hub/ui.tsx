@@ -1,9 +1,15 @@
-import { ReactNode, useCallback, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { api, on, Settings } from "../api";
 import { sortKeys, keyName } from "../keys";
 
-/** Shared settings state with optimistic save. */
-export function useSettings(): [Settings | null, (patch: Partial<Settings>) => Promise<void>, () => void] {
+export type SettingsPatch = Partial<Settings> | ((cur: Settings) => Partial<Settings>);
+
+// Saves from every page run one after another, each on the latest settings, so
+// two quick changes never overwrite each other.
+let saving: Promise<unknown> = Promise.resolve();
+
+/** Shared settings state with optimistic save. A patch can be a function of the current settings. */
+export function useSettings(): [Settings | null, (patch: SettingsPatch) => Promise<void>, () => void] {
   const [s, setS] = useState<Settings | null>(null);
   const reload = useCallback(() => {
     api.getSettings().then(setS);
@@ -12,16 +18,87 @@ export function useSettings(): [Settings | null, (patch: Partial<Settings>) => P
     reload();
     return on("settings-changed", reload);
   }, [reload]);
-  const save = useCallback(
-    async (patch: Partial<Settings>) => {
+  const save = useCallback((patch: SettingsPatch) => {
+    const run = async () => {
       const cur = await api.getSettings();
-      const next = { ...cur, ...patch };
+      const next = { ...cur, ...(typeof patch === "function" ? patch(cur) : patch) };
       setS(next);
       await api.saveSettings(next);
-    },
-    [],
-  );
+    };
+    const p = saving.then(run, run);
+    saving = p.catch(() => {});
+    return p;
+  }, []);
   return [s, save, reload];
+}
+
+// Edits still waiting on a timer, saved before Flow quits ("flush-before-quit").
+const flushers = new Set<() => Promise<unknown> | void>();
+
+export function registerFlush(f: () => Promise<unknown> | void): () => void {
+  flushers.add(f);
+  return () => {
+    flushers.delete(f);
+  };
+}
+
+export async function flushAll() {
+  await Promise.allSettled([...flushers].map((f) => f()));
+}
+
+/**
+ * A text field for a setting. Typing stays in the field (saving on every key
+ * dropped characters), and it saves half a second after the last key, when the
+ * field loses focus, and before Flow quits.
+ */
+export function SettingText({
+  value,
+  onSave,
+  multiline,
+  ...rest
+}: {
+  value: string;
+  onSave: (v: string) => Promise<unknown> | void;
+  multiline?: boolean;
+  className?: string;
+  placeholder?: string;
+  type?: string;
+  rows?: number;
+}) {
+  const [text, setText] = useState(value);
+  const pending = useRef<string | null>(null);
+  const timer = useRef<number | undefined>(undefined);
+  const save = useRef(onSave);
+  save.current = onSave;
+  // Follow changes from elsewhere (sync, another page) unless an edit is waiting.
+  useEffect(() => {
+    if (pending.current === null) setText(value);
+  }, [value]);
+  const flush = useCallback(async () => {
+    window.clearTimeout(timer.current);
+    const v = pending.current;
+    if (v === null) return;
+    pending.current = null;
+    await save.current(v);
+  }, []);
+  useEffect(() => {
+    const off = registerFlush(flush);
+    return () => {
+      off();
+      flush();
+    };
+  }, [flush]);
+  const change = (v: string) => {
+    setText(v);
+    pending.current = v;
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(flush, 500);
+  };
+  return multiline ? (
+    <textarea {...rest} value={text} onChange={(e) => change(e.target.value)} onBlur={flush} />
+  ) : (
+    <input {...rest} value={text} onChange={(e) => change(e.target.value)} onBlur={flush} />
+  );
 }
 
 export function Toggle({ on: value, onChange, disabled }: { on: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {

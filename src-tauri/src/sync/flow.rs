@@ -11,7 +11,8 @@
 //! | `history/<id>` | last 50 dictations, text only, when the person turns it on |
 //!
 //! Never synced: audio, API keys, the microphone, model choices (they depend on
-//! the computer's hardware), window and debug state.
+//! the computer's hardware), window and debug state, and what this computer keeps
+//! of its history (`data_policy`, `keep_audio`: applying them deletes local history).
 
 use super::Store;
 use crate::db::{DictEntry, HistoryItem};
@@ -29,12 +30,11 @@ const SETTINGS: &[&str] = &[
     "sounds",
     "language",
     "cleanup_level",
+    "cleanup_chosen",
     "llm_provider",
     "context_awareness",
     "auto_learn_words",
     "command_mode",
-    "data_policy",
-    "keep_audio",
     "restore_clipboard",
     "press_enter_command",
     "engine",
@@ -136,42 +136,12 @@ impl Store for FlowStore {
 
     fn apply(&self, changes: Vec<(String, Option<Value>)>) {
         let st = &self.0;
-        let old = st.settings.read().clone();
-        let mut s = old.clone();
         let (mut dict, mut history) = (false, false);
+        let mut setting_changes = vec![];
         for (key, v) in changes {
             let (kind, id) = key.split_once('/').unwrap_or((key.as_str(), ""));
             match (kind, v) {
-                ("settings", Some(v)) => s = merge_settings(&s, &v),
-                ("hotkeys", Some(v)) => {
-                    if let Ok(mine) = serde_json::from_value(v[OS].clone()) {
-                        s.shortcuts = mine;
-                    }
-                    s.hotkeys_other_os = v[OTHER_OS].clone();
-                }
-                ("styles", Some(v)) => {
-                    if let Ok(x) = serde_json::from_value(v["styles"].clone()) {
-                        s.styles = x;
-                    }
-                    if let Ok(x) = serde_json::from_value(v["app_categories"].clone()) {
-                        s.app_categories = x;
-                    }
-                }
-                ("transforms", Some(v)) => {
-                    if let Ok(x) = serde_json::from_value(v) {
-                        s.transforms = x;
-                    }
-                }
-                ("profile", Some(v)) => {
-                    // Set up on another computer: skip onboarding here too.
-                    s.onboarded = true;
-                    if let Some(n) = v["name"].as_str() {
-                        s.name = n.into();
-                    }
-                    if !v["answers"].is_null() {
-                        s.profile = v["answers"].clone();
-                    }
-                }
+                ("settings" | "hotkeys" | "styles" | "transforms" | "profile", Some(v)) => setting_changes.push((kind.to_string(), v)),
                 ("dictionary" | "snippets", Some(v)) => {
                     let e = DictEntry {
                         phrase: v["phrase"].as_str().unwrap_or_default().into(),
@@ -210,10 +180,17 @@ impl Store for FlowStore {
                 _ => {}
             }
         }
-        if serde_json::to_value(&s).ok() != serde_json::to_value(&old).ok() {
-            let _ = crate::dictation::apply_settings(st, s);
-            let _ = st.app.emit("settings-changed", ());
-            crate::refresh_tray(&st.app);
+        if !setting_changes.is_empty() {
+            // Applied to the current settings under the settings lock, so a change
+            // made here meanwhile is never lost.
+            let changed = crate::dictation::update_settings(st, |s| {
+                for (kind, v) in setting_changes {
+                    apply_setting(s, &kind, v);
+                }
+            });
+            if matches!(changed, Ok(true)) {
+                crate::refresh_tray(&st.app);
+            }
         }
         if dict {
             let _ = st.app.emit("dictionary-changed", ());
@@ -221,6 +198,43 @@ impl Store for FlowStore {
         if history {
             let _ = st.app.emit("history-changed", ());
         }
+    }
+}
+
+/// One synced settings item applied to this computer's settings.
+fn apply_setting(s: &mut Settings, kind: &str, v: Value) {
+    match kind {
+        "settings" => *s = merge_settings(s, &v),
+        "hotkeys" => {
+            if let Ok(mine) = serde_json::from_value(v[OS].clone()) {
+                s.shortcuts = mine;
+            }
+            s.hotkeys_other_os = v[OTHER_OS].clone();
+        }
+        "styles" => {
+            if let Ok(x) = serde_json::from_value(v["styles"].clone()) {
+                s.styles = x;
+            }
+            if let Ok(x) = serde_json::from_value(v["app_categories"].clone()) {
+                s.app_categories = x;
+            }
+        }
+        "transforms" => {
+            if let Ok(x) = serde_json::from_value(v) {
+                s.transforms = x;
+            }
+        }
+        "profile" => {
+            // Set up on another computer: skip onboarding here too.
+            s.onboarded = true;
+            if let Some(n) = v["name"].as_str() {
+                s.name = n.into();
+            }
+            if !v["answers"].is_null() {
+                s.profile = v["answers"].clone();
+            }
+        }
+        _ => {}
     }
 }
 
@@ -260,6 +274,24 @@ mod tests {
         assert!(!item.contains("secret"));
         assert!(!item.contains("USB mic"));
         assert!(!item.contains("speech_model"));
+    }
+
+    #[test]
+    fn history_retention_never_syncs() {
+        // Applying another computer's "don't keep history" would delete this one's.
+        let mut there = Settings::default();
+        there.data_policy = crate::settings::DataPolicy::NeverStore;
+        there.keep_audio = false;
+        let item = settings_item(&there);
+        assert!(item.get("data_policy").is_none());
+        assert!(item.get("keep_audio").is_none());
+        let here = Settings::default();
+        let mut sent = item.clone();
+        sent["data_policy"] = json!("never_store");
+        sent["keep_audio"] = json!(false);
+        let merged = merge_settings(&here, &sent);
+        assert_eq!(merged.data_policy, crate::settings::DataPolicy::StoreNormally);
+        assert!(merged.keep_audio);
     }
 
     #[test]

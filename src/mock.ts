@@ -30,6 +30,7 @@ const settings = {
   speech_model: "large-v3-turbo-q5",
   use_gpu: true,
   cleanup_level: "medium",
+  cleanup_chosen: false,
   llm_provider: "local",
   local_llm_model: "qwen3-4b-instruct",
   cloud_llm: { base_url: "https://api.openai.com/v1", api_key: "", model: "gpt-4o-mini" },
@@ -108,6 +109,9 @@ export function installMocks() {
           return settings;
         case "save_settings":
           Object.assign(settings, args.settings);
+          return null;
+        case "set_microphone":
+          settings.microphone = args.microphone;
           return null;
         case "history_list":
           return history.filter((h) => !args.query || h.text.toLowerCase().includes(args.query.toLowerCase()));

@@ -89,7 +89,7 @@ Every shortcut can be changed in **Shortcuts**, including modifier-only combos.
 - **Settings**: launch at login, desktop shortcut, sounds (synthesized, no audio files), keep clipboard, "press enter"
   voice command, history retention (keep / 24 hours / never), keep recordings for 14 days, delete all. Flow never
   mutes or pauses your music.
-- **Updates itself** quietly when you're not dictating (or through the Toolbay app), and restarts itself after a crash.
+- **Updates itself** quietly: it downloads in the background and installs when you quit (or through the Toolbay app), and restarts itself after a crash.
 - **Same Flow on every computer** (optional, off until you turn it on): sign in with a Toolbay account, turn on sync,
   and your name, setup answers, settings, styles, dictionary, snippets, shortcuts and engine choice sync between your
   Macs and PCs through toolbay.ai. Toolbay's server can read this data (it is not end-to-end encrypted). Recordings and

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, CleanupLevel, on, SyncStatus, DataPolicy, LANGUAGES, Provider } from "../../api";
-import { Page, Row, Section, Toggle, useSettings } from "../ui";
+import { Page, Row, Section, SettingText, Toggle, useSettings } from "../ui";
 import { isMac } from "../../keys";
 import Credit from "../Credit";
 
@@ -43,7 +43,7 @@ export default function SettingsPage({ go }: { go: (p: string) => void }) {
           <Toggle on={s.restore_clipboard} onChange={(v) => save({ restore_clipboard: v })} />
         </Row>
         <Row title="Your name" desc="Used to sign emails you dictate.">
-          <input className="inline" value={s.name} placeholder="Optional" onChange={(e) => save({ name: e.target.value })} />
+          <SettingText className="inline" value={s.name} placeholder="Optional" onSave={(v) => save({ name: v })} />
         </Row>
       </Section>
 
@@ -70,7 +70,7 @@ export default function SettingsPage({ go }: { go: (p: string) => void }) {
       <Section title="Cleanup">
         <div className="levels">
           {LEVELS.map(([id, label, desc]) => (
-            <button key={id} className={`level ${s.cleanup_level === id ? "sel" : ""}`} onClick={() => save({ cleanup_level: id })}>
+            <button key={id} className={`level ${s.cleanup_level === id ? "sel" : ""}`} onClick={() => save({ cleanup_level: id, cleanup_chosen: true })}>
               <b>{label}</b>
               <span>{desc}</span>
             </button>
@@ -87,15 +87,15 @@ export default function SettingsPage({ go }: { go: (p: string) => void }) {
           <div className="subform">
             <label>
               Base URL
-              <input value={s.cloud_llm.base_url} onChange={(e) => save({ cloud_llm: { ...s.cloud_llm, base_url: e.target.value } })} />
+              <SettingText value={s.cloud_llm.base_url} onSave={(v) => save((c) => ({ cloud_llm: { ...c.cloud_llm, base_url: v } }))} />
             </label>
             <label>
               Model
-              <input value={s.cloud_llm.model} onChange={(e) => save({ cloud_llm: { ...s.cloud_llm, model: e.target.value } })} />
+              <SettingText value={s.cloud_llm.model} onSave={(v) => save((c) => ({ cloud_llm: { ...c.cloud_llm, model: v } }))} />
             </label>
             <label>
               API key
-              <input type="password" value={s.cloud_llm.api_key} onChange={(e) => save({ cloud_llm: { ...s.cloud_llm, api_key: e.target.value } })} />
+              <SettingText type="password" value={s.cloud_llm.api_key} onSave={(v) => save((c) => ({ cloud_llm: { ...c.cloud_llm, api_key: v } }))} />
             </label>
           </div>
         )}
@@ -103,11 +103,11 @@ export default function SettingsPage({ go }: { go: (p: string) => void }) {
           <div className="subform">
             <label>
               Model
-              <input value={s.anthropic.model} onChange={(e) => save({ anthropic: { ...s.anthropic, model: e.target.value } })} />
+              <SettingText value={s.anthropic.model} onSave={(v) => save((c) => ({ anthropic: { ...c.anthropic, model: v } }))} />
             </label>
             <label>
               API key
-              <input type="password" value={s.anthropic.api_key} onChange={(e) => save({ anthropic: { ...s.anthropic, api_key: e.target.value } })} />
+              <SettingText type="password" value={s.anthropic.api_key} onSave={(v) => save((c) => ({ anthropic: { ...c.anthropic, api_key: v } }))} />
             </label>
           </div>
         )}

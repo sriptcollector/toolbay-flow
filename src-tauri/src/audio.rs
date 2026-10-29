@@ -359,6 +359,12 @@ pub fn find_cut(samples: &[f32], from: usize) -> Option<usize> {
 }
 
 /// Is there any speech at all? (Skips silent key presses.)
+/// A recording of at least 200 ms whose peak is exactly zero: no real microphone
+/// is that quiet, so the OS is handing over silence (permission off or blocked).
+pub fn all_zero(samples: &[f32]) -> bool {
+    samples.len() >= (SAMPLE_RATE as usize) / 5 && samples.iter().all(|s| *s == 0.0)
+}
+
 pub fn has_speech(samples: &[f32]) -> bool {
     if samples.len() < (SAMPLE_RATE as usize) / 5 {
         return false;

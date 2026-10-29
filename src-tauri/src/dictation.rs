@@ -147,6 +147,9 @@ pub struct State {
     pub config_dir: PathBuf,
     pub data_dir: PathBuf,
     pub settings: RwLock<Settings>,
+    /// Held across read, change and save of the settings, so two writers never
+    /// overwrite each other's change.
+    settings_write: Mutex<()>,
     pub db: Db,
     pub paths: Paths,
     pub engines: Engines,
@@ -199,6 +202,7 @@ impl State {
             config_dir,
             data_dir,
             settings: RwLock::new(s),
+            settings_write: Mutex::new(()),
             db,
             engines: Engines::default(),
             engine_lock: tokio::sync::Mutex::new(()),
@@ -510,10 +514,13 @@ pub fn paste_last(st: &St) {
     }
     if let Ok(Some(t)) = st.db.last_text() {
         let restore = st.settings.read().restore_clipboard;
+        let st = st.clone();
         std::thread::spawn(move || {
             // Called once the shortcut's keys are up; a short beat lets the OS settle.
             std::thread::sleep(Duration::from_millis(25));
-            let _ = paste::paste(&t, restore);
+            if let Ok(false) = paste::paste(&t, restore) {
+                st.notice_ms(paste::COPIED_ONLY, 6000);
+            }
         });
     }
 }
@@ -571,6 +578,10 @@ pub fn start(st: &St, mode: Mode) {
     let cloud = s.engine == "cloud" && !s.cloud_asr.api_key.is_empty();
     if !cloud && crate::models::current_speech_path(st).is_none() {
         st.bar("notice", None, Some("Toolbay Flow is still getting ready. Try again in a moment.".into()));
+        return;
+    }
+    if crate::macperm::microphone_blocked() {
+        mic_blocked(st);
         return;
     }
     let ctx_slot: Arc<Mutex<Option<FocusContext>>> = Arc::new(Mutex::new(None));
@@ -648,6 +659,23 @@ pub fn start(st: &St, mode: Mode) {
             st3.notice("Stopped at 20 minutes, the most one dictation can run");
         }
     });
+}
+
+/// The OS hands Flow only silence (macOS microphone permission off, or Windows'
+/// microphone privacy switch): say so, with a button to the right settings page.
+fn mic_blocked(st: &St) {
+    if st.settings.read().sounds {
+        sounds::play(Sound::Error);
+    }
+    let msg = if cfg!(target_os = "macos") {
+        "macOS is blocking the microphone, so Toolbay Flow heard nothing. Switch on Toolbay Flow in Privacy & Security > Microphone."
+    } else {
+        "Your microphone sent only silence: Windows is blocking it or it's muted. Turn on microphone access for desktop apps in Privacy & security > Microphone."
+    };
+    let _ = st.app.emit(
+        "bar-state",
+        BarState { phase: "error", mode: None, message: Some(msg.into()), action: Some(("Open settings", "mic_settings")), ms: Some(9000) },
+    );
 }
 
 /// Progress of streaming transcription for the current recording.
@@ -784,6 +812,11 @@ pub fn stop(st: &St) {
     let st2 = st.clone();
     tauri::async_runtime::spawn(async move {
         let res = async {
+            if audio::all_zero(&samples) {
+                // Not quiet: blocked. Say so instead of treating it as "no speech".
+                mic_blocked(&st2);
+                return Ok(None);
+            }
             if !audio::has_speech(&samples) {
                 return Ok(None);
             }
@@ -1074,11 +1107,15 @@ async fn process(st: &St, raw: String, samples: Vec<f32>, mode: Mode, ctx: Focus
     }
     let restore = st.settings.read().restore_clipboard;
     let t2 = text.clone();
+    let mut pasted = true;
     if !(press_enter && text.trim().is_empty()) {
         // "Press enter" said on its own: just press Enter.
-        tokio::task::spawn_blocking(move || paste::paste(&t2, restore)).await??;
+        pasted = tokio::task::spawn_blocking(move || paste::paste(&t2, restore)).await??;
+        if !pasted {
+            st.notice_ms(paste::COPIED_ONLY, 6000);
+        }
     }
-    if press_enter {
+    if press_enter && pasted {
         tokio::time::sleep(Duration::from_millis(120)).await;
         let _ = tokio::task::spawn_blocking(paste::press_enter).await;
     }
@@ -1262,7 +1299,9 @@ pub fn transform(st: &St, i: usize) {
             }
             let restore = st.settings.read().restore_clipboard;
             let o2 = out.clone();
-            tokio::task::spawn_blocking(move || paste::paste(&o2, restore)).await??;
+            if !tokio::task::spawn_blocking(move || paste::paste(&o2, restore)).await?? {
+                st.notice_ms(paste::COPIED_ONLY, 6000);
+            }
             if st.settings.read().data_policy != DataPolicy::NeverStore {
                 let item = HistoryItem {
                     mode: "transform".into(),
@@ -1343,8 +1382,24 @@ pub fn mic_test(st: &St, on: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn apply_settings(st: &St, mut new: Settings) -> Result<()> {
+/// Every settings change goes through here: one lock is held across reading the
+/// current settings, changing them and saving, so two writers (the hub, the bar,
+/// the tray, sync, Auto) never overwrite each other's change. Saves, applies and
+/// tells the windows only when something changed; returns whether it did.
+pub fn update_settings(st: &St, f: impl FnOnce(&mut Settings)) -> Result<bool> {
+    let _w = st.settings_write.lock();
     let old = st.settings.read().clone();
+    let mut new = old.clone();
+    f(&mut new);
+    if serde_json::to_value(&new).ok() == serde_json::to_value(&old).ok() {
+        return Ok(false);
+    }
+    apply_locked(st, &old, new)?;
+    let _ = st.app.emit("settings-changed", ());
+    Ok(true)
+}
+
+fn apply_locked(st: &St, old: &Settings, mut new: Settings) -> Result<()> {
     if new.sync_enabled {
         // Only the person turns sync on (the sync question or the Settings
         // toggle); it is never in the synced settings item.
@@ -1385,14 +1440,6 @@ pub fn apply_settings(st: &St, mut new: Settings) -> Result<()> {
     }
     *st.settings.write() = new;
     Ok(())
-}
-
-/// Time since the last dictation started (and nothing is in progress now).
-pub fn idle_for(st: &St) -> Duration {
-    if st.session.lock().phase != Phase::Idle {
-        return Duration::ZERO;
-    }
-    st.last_activity.lock().elapsed()
 }
 
 pub fn mic_idle_tick(st: &St) {

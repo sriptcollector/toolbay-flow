@@ -1,4 +1,4 @@
-//! macOS privacy permissions Flow needs for typing and the shortcut.
+//! macOS privacy permissions Flow needs for the microphone, typing and the shortcut.
 //!
 //! An app only appears in System Settings > Privacy > Accessibility / Input Monitoring after it
 //! asks for access itself. Opening the settings page alone leaves the list empty, so the
@@ -27,8 +27,24 @@ mod imp {
         fn CGRequestListenEventAccess() -> bool;
     }
 
+    // AVFoundation: the microphone permission (Privacy & Security > Microphone).
+    #[link(name = "AVFoundation", kind = "framework")]
+    extern "C" {
+        static AVMediaTypeAudio: &'static objc2::runtime::AnyObject;
+    }
+
     pub fn accessibility() -> bool {
         unsafe { AXIsProcessTrusted() }
+    }
+
+    /// macOS has refused Flow the microphone (switched off in Privacy & Security, or blocked
+    /// by a profile). Then recordings come back as pure silence with no error. Not asked yet
+    /// counts as allowed: opening the microphone shows macOS's own prompt.
+    pub fn microphone_blocked() -> bool {
+        use objc2::{class, msg_send};
+        // AVAuthorizationStatus: 0 not asked yet, 1 restricted, 2 denied, 3 allowed.
+        let status: isize = unsafe { msg_send![class!(AVCaptureDevice), authorizationStatusForMediaType: AVMediaTypeAudio] };
+        matches!(status, 1 | 2)
     }
 
     /// Input Monitoring is on if macOS says so, or if the shortcut's listener is already running
@@ -114,6 +130,7 @@ pub fn fn_key_usage() -> Option<i64> {
 #[allow(dead_code)]
 mod imp {
     pub fn accessibility() -> bool { true }
+    pub fn microphone_blocked() -> bool { false }
     pub fn input_monitoring() -> bool { true }
     pub fn request_accessibility() -> bool { true }
     pub fn request_input_monitoring() -> bool { true }

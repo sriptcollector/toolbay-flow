@@ -39,6 +39,8 @@ export interface Settings {
   speech_model: string;
   use_gpu: boolean;
   cleanup_level: CleanupLevel;
+  /** Picked by the person: Auto never changes it. */
+  cleanup_chosen: boolean;
   llm_provider: Provider;
   local_llm_model: string;
   cloud_llm: CloudLlm;
@@ -163,6 +165,8 @@ export interface Progress {
 export const api = {
   getSettings: () => invoke<Settings>("get_settings"),
   saveSettings: (settings: Settings) => invoke<void>("save_settings", { settings }),
+  /** Changes only the microphone, so a stale copy of the settings never overwrites the rest. */
+  setMicrophone: (microphone: string | null) => invoke<void>("set_microphone", { microphone }),
   defaultShortcuts: () => invoke<Shortcut[]>("default_shortcuts"),
   listModels: () => invoke<ModelRow[]>("list_models"),
   hardware: () => invoke<Hardware>("hardware"),
@@ -202,6 +206,7 @@ export const api = {
   appInfo: () => invoke<{ version: string; fromToolbay: boolean; os: string }>("app_info"),
   openDataDir: () => invoke<void>("open_data_dir"),
   quit: () => invoke<void>("quit"),
+  quitFlushed: () => invoke<void>("quit_flushed"),
   uiReady: () => invoke<void>("ui_ready"),
   ownKey: (vk: number, down: boolean) => invoke<void>("own_key", { vk, down }),
   sendFeedback: (kind: string, text: string, debug: boolean, isPublic: boolean) => invoke<string>("send_feedback", { kind, text, debug, public: isPublic }),
@@ -216,8 +221,16 @@ export const api = {
   micCheck: () => invoke<{ ok: boolean; message: string }>("mic_check"),
   openSystemSettings: (kind: string) => invoke<void>("open_system_settings", { kind }),
   restartApp: () => invoke<void>("restart_app"),
-  macPermissions: () => invoke<{ accessibility: boolean; input: boolean; fn_free: boolean }>("mac_permissions"),
+  macPermissions: () => invoke<MacPermissions>("mac_permissions"),
 };
+
+export interface MacPermissions {
+  /** False when macOS blocks the microphone: recordings would be silent. */
+  microphone: boolean;
+  accessibility: boolean;
+  input: boolean;
+  fn_free: boolean;
+}
 
 export interface SyncStatus {
   state: "off" | "signed_out" | "syncing" | "ok" | "offline" | "error" | "";

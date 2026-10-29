@@ -184,7 +184,7 @@ pub fn auto_setup(st: &St) {
     let st = st.clone();
     tauri::async_runtime::spawn(async move {
         let hw = detect();
-        let mut s = st.settings.read().clone();
+        let s = st.settings.read().clone();
         let mut choice = recommend(&hw, &s.language);
         // Respect slowdowns measured on this computer.
         if s.auto_slow_cleanup && matches!(choice.cleanup, CleanupLevel::Medium) {
@@ -202,15 +202,21 @@ pub fn auto_setup(st: &St) {
                 other => other.into(),
             };
         }
+        if s.cleanup_chosen {
+            // The person picked the cleanup level: Auto only picks the models.
+            choice.cleanup = s.cleanup_level.clone();
+        }
         let changed = s.speech_model != choice.speech_model || s.local_llm_model != choice.llm_model || s.cleanup_level != choice.cleanup || s.hw_fingerprint != hw.fingerprint();
         if changed {
-            s.speech_model = choice.speech_model.clone();
-            s.local_llm_model = choice.llm_model.clone();
-            s.cleanup_level = choice.cleanup.clone();
-            s.hw_fingerprint = hw.fingerprint();
-            s.auto_reason = choice.why.clone();
-            let _ = crate::dictation::apply_settings(&st, s.clone());
-            let _ = st.app.emit("settings-changed", ());
+            let _ = crate::dictation::update_settings(&st, |s| {
+                s.speech_model = choice.speech_model.clone();
+                s.local_llm_model = choice.llm_model.clone();
+                if !s.cleanup_chosen {
+                    s.cleanup_level = choice.cleanup.clone();
+                }
+                s.hw_fingerprint = hw.fingerprint();
+                s.auto_reason = choice.why.clone();
+            });
         }
         let need_llm = matches!(choice.cleanup, CleanupLevel::Medium | CleanupLevel::High);
         let emit = |busy: bool, message: String| {
@@ -284,18 +290,13 @@ pub fn record_latency(st: &St, audio_ms: u64, speech_ms: u64, cleanup_ms: Option
     cl.sort();
     v.clear();
     drop(v);
-    let mut s = st.settings.read().clone();
-    let mut changed = false;
-    if rtfs[rtfs.len() / 2] > 0.35 && !s.auto_slow_speech {
-        s.auto_slow_speech = true;
-        changed = true;
-    }
-    if !cl.is_empty() && cl[cl.len() / 2] > 1500 && !s.auto_slow_cleanup {
-        s.auto_slow_cleanup = true;
-        changed = true;
-    }
-    if changed {
-        let _ = crate::dictation::apply_settings(st, s);
+    let slow_speech = rtfs[rtfs.len() / 2] > 0.35;
+    let slow_cleanup = !cl.is_empty() && cl[cl.len() / 2] > 1500;
+    let changed = crate::dictation::update_settings(st, |s| {
+        s.auto_slow_speech |= slow_speech;
+        s.auto_slow_cleanup |= slow_cleanup;
+    });
+    if matches!(changed, Ok(true)) {
         auto_setup(st);
     }
 }

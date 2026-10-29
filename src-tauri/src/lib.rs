@@ -99,9 +99,11 @@ fn create_hub(app: &AppHandle, visible: bool) -> tauri::Result<()> {
     });
     let w2 = w.clone();
     w.on_window_event(move |ev| {
-        if let tauri::WindowEvent::CloseRequested { .. } = ev {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = ev {
             // Nothing runs in the background: closing the main window quits Flow,
-            // bar and tray included.
+            // bar and tray included. The window stays until the page has saved
+            // what it was still holding (the Scratchpad's last edit, for one).
+            api.prevent_close();
             hub::quit(w2.app_handle());
         }
     });
@@ -169,7 +171,7 @@ fn bar_loop(app: AppHandle) {
                     (s.show_bar && s.onboarded, s.bar_snooze_until)
                 };
                 if show && until > 0 && until <= chrono::Utc::now().timestamp() {
-                    st.settings.write().bar_snooze_until = 0;
+                    let _ = dictation::update_settings(&st, |s| s.bar_snooze_until = 0);
                     let _ = app.emit("bar-snoozed", 0i64);
                     if !w.is_visible().unwrap_or(true) {
                         let _ = w.show();
@@ -256,23 +258,18 @@ fn on_menu(app: &AppHandle, id: &str) {
             });
         }
         "toggle_bar" => {
-            let mut s = st.settings.read().clone();
-            s.show_bar = !s.show_bar;
-            let _ = dictation::apply_settings(&st, s);
-            let _ = app.emit("settings-changed", ());
+            let _ = dictation::update_settings(&st, |s| s.show_bar = !s.show_bar);
             refresh_tray(app);
         }
         other => {
-            let mut s = st.settings.read().clone();
             if let Some(m) = other.strip_prefix("mic:") {
-                s.microphone = if m.is_empty() { None } else { Some(m.to_string()) };
+                let mic = if m.is_empty() { None } else { Some(m.to_string()) };
+                let _ = dictation::update_settings(&st, |s| s.microphone = mic);
             } else if let Some(l) = other.strip_prefix("lang:") {
-                s.language = l.to_string();
+                let _ = dictation::update_settings(&st, |s| s.language = l.to_string());
             } else {
                 return;
             }
-            let _ = dictation::apply_settings(&st, s);
-            let _ = app.emit("settings-changed", ());
             refresh_tray(app);
         }
     }
@@ -412,12 +409,18 @@ pub fn run() {
             commands::open_system_settings,
             commands::mac_permissions,
             commands::restart_app,
+            commands::set_microphone,
+            commands::quit_flushed,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Toolbay Flow")
-        .run(|app, ev| {
-            if let tauri::RunEvent::Exit = ev {
-                hub::clear_state(app);
+        .run(|app, ev| match ev {
+            // Quit from the OS (Cmd+Q, logout): save and install a waiting update first.
+            tauri::RunEvent::ExitRequested { code: None, api, .. } if !hub::quitting() => {
+                api.prevent_exit();
+                hub::quit(app);
             }
+            tauri::RunEvent::Exit => hub::clear_state(app),
+            _ => {}
         });
 }

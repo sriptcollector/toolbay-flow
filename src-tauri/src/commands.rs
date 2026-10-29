@@ -23,7 +23,21 @@ pub fn get_settings(st: State<St>) -> Settings {
 
 #[tauri::command]
 pub fn save_settings(st: State<St>, settings: Settings) -> R<()> {
-    dictation::apply_settings(&st, settings).map_err(e)?;
+    dictation::update_settings(&st, move |s| {
+        // A different cleanup level from the hub is the person's own pick: Auto keeps it from now on.
+        let chosen = s.cleanup_chosen || settings.cleanup_chosen || settings.cleanup_level != s.cleanup_level;
+        *s = settings;
+        s.cleanup_chosen = chosen;
+    })
+    .map_err(e)?;
+    crate::refresh_tray(&st.app);
+    Ok(())
+}
+
+/// Changes only the microphone (the bar's menu), leaving every other setting as it is.
+#[tauri::command]
+pub fn set_microphone(st: State<St>, microphone: Option<String>) -> R<()> {
+    dictation::update_settings(&st, move |s| s.microphone = microphone).map_err(e)?;
     crate::refresh_tray(&st.app);
     Ok(())
 }
@@ -278,17 +292,14 @@ pub fn bar_action(st: State<St>, action: String) {
         "undo_cancel" => dictation::recover(&st),
         "open_settings" => crate::show_hub(&st.app, Some("settings")),
         "hide_1h" => {
-            let mut s = st.settings.read().clone();
-            s.bar_snooze_until = chrono::Utc::now().timestamp() + 3600;
-            let _ = dictation::apply_settings(&st, s);
+            let _ = dictation::update_settings(&st, |s| s.bar_snooze_until = chrono::Utc::now().timestamp() + 3600);
             st.notice_with("The bar is hidden for an hour", "Undo", "show_bar", 6000);
         }
         "show_bar" => {
-            let mut s = st.settings.read().clone();
-            s.bar_snooze_until = 0;
-            let _ = dictation::apply_settings(&st, s);
+            let _ = dictation::update_settings(&st, |s| s.bar_snooze_until = 0);
         }
         "history" => crate::show_hub(&st.app, Some("home")),
+        "mic_settings" => open_system_settings(st.app.clone(), "microphone".into()),
         _ => {}
     }
 }
@@ -337,6 +348,12 @@ pub fn open_data_dir(st: State<St>) {
 #[tauri::command]
 pub fn quit(app: AppHandle) {
     crate::hub::quit(&app);
+}
+
+/// The main window saved its pending edits after "flush-before-quit".
+#[tauri::command]
+pub fn quit_flushed(app: AppHandle) {
+    crate::hub::finish_quit(&app);
 }
 
 #[tauri::command]
@@ -393,10 +410,7 @@ pub async fn sync_sign_in(app: AppHandle) -> R<()> {
 #[tauri::command]
 pub async fn sync_delete_remote(st: State<'_, St>) -> R<()> {
     let st = st.inner().clone();
-    let mut s = st.settings.read().clone();
-    s.sync_enabled = false;
-    dictation::apply_settings(&st, s).map_err(e)?;
-    let _ = st.app.emit("settings-changed", ());
+    dictation::update_settings(&st, |s| s.sync_enabled = false).map_err(e)?;
     let sync = crate::sync::flow::get().ok_or("Sync isn't running.")?;
     sync.delete_remote().await.map_err(|err| err.to_string())?;
     sync.sync_once().await;
@@ -459,6 +473,9 @@ pub fn mic_check(st: State<St>) -> MicCheck {
     if st.mic_test.load(Ordering::Relaxed) {
         return MicCheck { ok: true, message: String::new() };
     }
+    if crate::macperm::microphone_blocked() {
+        return MicCheck { ok: false, message: "macOS is blocking the microphone. Click Open settings and switch on Toolbay Flow.".into() };
+    }
     let dev = st.settings.read().microphone.clone();
     let mut r = crate::audio::Recorder::new();
     match r.start(dev, std::sync::Arc::new(|_| {})) {
@@ -480,17 +497,20 @@ pub fn mic_check(st: State<St>) -> MicCheck {
 
 #[derive(serde::Serialize)]
 pub struct MacPermissions {
+    /// False when macOS blocks the microphone (recordings would be silent).
+    microphone: bool,
     accessibility: bool,
     input: bool,
     /// False when macOS also uses the Fn (🌐) key, so holding it opens emoji or dictation.
     fn_free: bool,
 }
 
-/// Whether macOS has allowed typing (Accessibility) and the shortcut (Input Monitoring), and
-/// whether the Fn key is free for Flow.
+/// Whether macOS has allowed the microphone, typing (Accessibility) and the shortcut (Input
+/// Monitoring), and whether the Fn key is free for Flow.
 #[tauri::command]
 pub fn mac_permissions() -> MacPermissions {
     MacPermissions {
+        microphone: !crate::macperm::microphone_blocked(),
         accessibility: crate::macperm::accessibility(),
         // The shortcut listener is an active tap, covered by Accessibility (no Input Monitoring).
         input: crate::macperm::accessibility(),
@@ -538,9 +558,7 @@ pub fn has_desktop_shortcut() -> bool {
 #[tauri::command]
 pub fn set_desktop_shortcut(st: State<St>, on: bool) -> R<()> {
     crate::hub::set_desktop_shortcut(on).map_err(|_| "Couldn't change the desktop shortcut. Check that your Desktop folder exists.".to_string())?;
-    let mut s = st.settings.read().clone();
-    s.desktop_shortcut = on;
-    dictation::apply_settings(&st, s).map_err(e)
+    dictation::update_settings(&st, |s| s.desktop_shortcut = on).map(|_| ()).map_err(e)
 }
 
 #[allow(dead_code)]

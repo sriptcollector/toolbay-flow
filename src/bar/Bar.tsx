@@ -143,9 +143,8 @@ export default function Bar() {
               key={m ?? "default"}
               className={settings.microphone === m ? "on" : ""}
               onClick={() => {
-                const next = { ...settings, microphone: m };
-                setSettings(next);
-                api.saveSettings(next);
+                setSettings({ ...settings, microphone: m });
+                api.setMicrophone(m);
                 setMenu(false);
               }}
             >

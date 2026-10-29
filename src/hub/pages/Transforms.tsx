@@ -1,13 +1,12 @@
 import { Action } from "../../api";
-import { Keys, Page, useSettings } from "../ui";
+import { Keys, Page, SettingText, useSettings } from "../ui";
 
 export default function Transforms() {
   const [s, save] = useSettings();
   if (!s) return null;
-  const update = (i: number, patch: Partial<{ name: string; instructions: string }>) => {
-    const t = s.transforms.map((x, j) => (j === i ? { ...x, ...patch } : x));
-    save({ transforms: t });
-  };
+  // Applied to the latest settings, so an edit to one field never undoes another.
+  const update = (i: number, patch: Partial<{ name: string; instructions: string }>) =>
+    save((cur) => ({ transforms: cur.transforms.map((x, j) => (j === i ? { ...x, ...patch } : x)) }));
   return (
     <Page title="Transforms" sub="Highlight text in any app, press a transform shortcut, and Toolbay Flow rewrites it in place.">
       {s.transforms.map((t, i) => {
@@ -15,10 +14,10 @@ export default function Transforms() {
         return (
           <div key={t.id} className="card pad transform">
             <div className="transform-head">
-              <input className="title-input" value={t.name} onChange={(e) => update(i, { name: e.target.value })} />
+              <SettingText className="title-input" value={t.name} onSave={(v) => update(i, { name: v })} />
               {sc && <Keys keys={sc.keys} />}
             </div>
-            <textarea rows={3} value={t.instructions} onChange={(e) => update(i, { instructions: e.target.value })} />
+            <SettingText multiline rows={3} value={t.instructions} onSave={(v) => update(i, { instructions: v })} />
           </div>
         );
       })}

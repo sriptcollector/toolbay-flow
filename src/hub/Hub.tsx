@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useState } from "react";
 import { MessageSquareHeart, Mic, ChartColumnBig, BookA, Scissors, Type, WandSparkles, NotebookPen, Cpu, Keyboard, Settings as Gear, CircleHelp, PanelLeft, CircleUserRound, Minus, Square, X } from "lucide-react";
-import { api, on } from "../api";
+import { api, MacPermissions, on } from "../api";
 import { Modal, Toaster, useSettings } from "./ui";
 import Onboarding from "./Onboarding";
 import { askedThisRun, clearPermissionResume, markPermissionAsked, resumedFrom } from "./permResume";
@@ -208,9 +208,9 @@ function SyncQuestion() {
   );
 }
 
-/** Shown on every page until macOS allows typing and the shortcut; without them dictation can't start. */
+/** Shown on every page until macOS allows the microphone, typing and the shortcut; without them dictation can't work. */
 function MacPermissionAlert() {
-  const [p, setP] = useState<{ accessibility: boolean; input: boolean; fn_free: boolean } | null>(null);
+  const [p, setP] = useState<MacPermissions | null>(null);
   const [resumed] = useState(() => resumedFrom() === "app");
   const [asked, setAsked] = useState(askedThisRun);
   const [thanks, setThanks] = useState(false);
@@ -230,6 +230,41 @@ function MacPermissionAlert() {
     return () => clearTimeout(t);
   }, [resumed, ok]);
   if (!p) return null;
+  // Without the microphone macOS hands Flow pure silence, with no error.
+  const mic = !p.microphone && (
+    <div className="perm-alert" role="alert">
+      <div>
+        <b>macOS is blocking the microphone</b>
+        <span>Toolbay Flow hears only silence until you allow it. Click Allow microphone, then switch on Toolbay Flow in the window that opens.</span>
+      </div>
+      <button className="btn" onClick={() => api.openSystemSettings("microphone")}>
+        Allow microphone
+      </button>
+    </div>
+  );
+  return (
+    <>
+      {mic}
+      <AccessibilityAlert p={p} ok={ok} thanks={thanks} resumed={resumed} asked={asked} setAsked={setAsked} />
+    </>
+  );
+}
+
+function AccessibilityAlert({
+  p,
+  ok,
+  thanks,
+  resumed,
+  asked,
+  setAsked,
+}: {
+  p: MacPermissions;
+  ok: boolean;
+  thanks: boolean;
+  resumed: boolean;
+  asked: boolean;
+  setAsked: (v: boolean) => void;
+}) {
   const allow = (kind: string) => {
     markPermissionAsked("app");
     setAsked(true);

@@ -4,9 +4,15 @@
 use anyhow::Result;
 use std::time::Duration;
 
-pub fn paste(text: &str, restore: bool) -> Result<()> {
+/// Returns false when the text could only be copied (macOS hasn't allowed
+/// Accessibility, so the paste keystroke would be dropped): it stays on the
+/// clipboard for the person to paste.
+pub fn paste(text: &str, restore: bool) -> Result<bool> {
     platform::paste(text, restore)
 }
+
+/// What the bar says when `paste` could only copy.
+pub const COPIED_ONLY: &str = "Copied, press ⌘V to paste. Allow Accessibility so Toolbay Flow can paste for you.";
 
 /// Sends a single Enter key press (the "press enter" voice command).
 pub fn press_enter() {
@@ -161,7 +167,7 @@ mod platform {
         }
     }
 
-    pub fn paste(text: &str, restore_after: bool) -> Result<()> {
+    pub fn paste(text: &str, restore_after: bool) -> Result<bool> {
         let snap = if restore_after { snapshot() } else { vec![] };
         write_text(text, true)?;
         let seq = unsafe { GetClipboardSequenceNumber() };
@@ -176,7 +182,7 @@ mod platform {
                 }
             });
         }
-        Ok(())
+        Ok(true)
     }
 
     pub fn press_enter() {
@@ -244,21 +250,32 @@ mod platform {
         Ok(())
     }
 
-    pub fn paste(text: &str, restore_after: bool) -> Result<()> {
+    pub fn paste(text: &str, restore_after: bool) -> Result<bool> {
         let mut cb = arboard::Clipboard::new()?;
+        if !crate::macperm::accessibility() {
+            // macOS drops a Cmd+V from an app without Accessibility: leave the text on
+            // the clipboard (never put the old one back) so it can be pasted by hand.
+            cb.set_text(text.to_string())?;
+            return Ok(false);
+        }
         let prev = if restore_after { cb.get_text().ok() } else { None };
         cb.set_text(text.to_string())?;
         std::thread::sleep(Duration::from_millis(30));
         cmd_key(9); // V
         if let Some(prev) = prev {
+            let ours = text.to_string();
             std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_millis(700));
                 if let Ok(mut cb) = arboard::Clipboard::new() {
-                    let _ = cb.set_text(prev);
+                    // Only if the clipboard still holds the dictation: never replace
+                    // something the person copied meanwhile.
+                    if cb.get_text().ok().as_deref() == Some(ours.as_str()) {
+                        let _ = cb.set_text(prev);
+                    }
                 }
             });
         }
-        Ok(())
+        Ok(true)
     }
 
     pub fn press_enter() {
@@ -289,8 +306,8 @@ mod platform {
     pub fn set_text(_: &str) -> Result<()> {
         Ok(())
     }
-    pub fn paste(_: &str, _: bool) -> Result<()> {
-        Ok(())
+    pub fn paste(_: &str, _: bool) -> Result<bool> {
+        Ok(true)
     }
     pub fn copy_selection() -> Option<String> {
         None

@@ -11,7 +11,8 @@
 
 use serde::Serialize;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::{AppHandle, Emitter, Manager};
 
 pub fn handle_args(app: &AppHandle, args: &[String]) {
     if args.iter().any(|a| a == "--quit") {
@@ -27,9 +28,42 @@ pub fn handle_args(app: &AppHandle, args: &[String]) {
     }
 }
 
+static QUITTING: AtomicBool = AtomicBool::new(false);
+static QUIT_DONE: AtomicBool = AtomicBool::new(false);
+
+/// Quits Flow. The main window first gets "flush-before-quit" so it can save
+/// edits still waiting on a timer (the Scratchpad, settings fields); it answers
+/// with `quit_flushed`. If it doesn't within 2 seconds, Flow quits anyway.
 pub fn quit(app: &AppHandle) {
+    if QUITTING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let ready = crate::UI_READY.load(Ordering::SeqCst);
+    if !ready || app.get_webview_window("main").is_none() || app.emit_to("main", "flush-before-quit", ()).is_err() {
+        finish_quit(app);
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        finish_quit(&app);
+    });
+}
+
+/// The window saved what it had (or the 2 seconds ran out): install a downloaded
+/// update if there is one, then exit.
+pub fn finish_quit(app: &AppHandle) {
+    if QUIT_DONE.swap(true, Ordering::SeqCst) {
+        return;
+    }
     clear_state(app);
+    crate::updates::install_pending();
     app.exit(0);
+}
+
+/// Quitting has started (the window close is turned into a flush, then a quit).
+pub fn quitting() -> bool {
+    QUITTING.load(Ordering::SeqCst)
 }
 
 /// Removes running.json (the app is no longer running).

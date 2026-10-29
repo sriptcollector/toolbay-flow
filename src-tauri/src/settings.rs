@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -100,6 +101,8 @@ pub struct Settings {
     pub speech_model: String,
     pub use_gpu: bool,
     pub cleanup_level: CleanupLevel,
+    /// The person picked the cleanup level themselves: Auto never changes it again.
+    pub cleanup_chosen: bool,
     pub llm_provider: LlmProvider,
     pub local_llm_model: String,
     pub cloud_llm: CloudLlm,
@@ -165,6 +168,7 @@ impl Default for Settings {
             speech_model: "base.en-q5".into(),
             use_gpu: true,
             cleanup_level: CleanupLevel::Light,
+            cleanup_chosen: false,
             llm_provider: LlmProvider::Local,
             local_llm_model: "qwen3-4b-instruct".into(),
             cloud_llm: CloudLlm {
@@ -288,21 +292,61 @@ pub fn path(dir: &PathBuf) -> PathBuf {
     dir.join("settings.json")
 }
 
+/// Set when settings.json exists but its contents couldn't be kept safe (unreadable,
+/// or damaged and the copy failed). Saving then would replace the person's real
+/// settings with defaults, so `save` refuses until the next start.
+static SAVE_BLOCKED: AtomicBool = AtomicBool::new(false);
+/// Each write gets its own temp file, so two writes never share one.
+static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
+
 pub fn load(dir: &PathBuf) -> Settings {
-    let mut s: Settings = std::fs::read_to_string(path(dir))
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default();
-    if migrate_sync(&mut s) {
+    let (mut s, safe) = read(dir);
+    SAVE_BLOCKED.store(!safe, Ordering::SeqCst);
+    if safe && migrate_sync(&mut s) {
         // Write it back right away (no sync poke: sync is off now anyway).
-        if let Ok(b) = serde_json::to_vec_pretty(&s) {
-            let tmp = dir.join("settings.json.tmp");
-            if std::fs::write(&tmp, b).is_ok() {
-                let _ = std::fs::rename(tmp, path(dir));
-            }
-        }
+        let _ = write_file(dir, &s);
     }
     s
+}
+
+/// Reads settings.json. The flag says whether saving over the file is safe: a
+/// missing file is (defaults), a damaged one is once a copy is kept as
+/// `settings.json.bad-<time>` and the fields that still parse are merged over the
+/// defaults; an unreadable file is not.
+fn read(dir: &PathBuf) -> (Settings, bool) {
+    let p = path(dir);
+    let text = match std::fs::read_to_string(&p) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (Settings::default(), true),
+        Err(e) => {
+            log::error!("couldn't read {}: {e}", p.display());
+            return (Settings::default(), false);
+        }
+    };
+    match serde_json::from_str::<Settings>(&text) {
+        Ok(s) => (s, true),
+        Err(e) => {
+            let bad = dir.join(format!("settings.json.bad-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S")));
+            let kept = std::fs::write(&bad, &text).is_ok();
+            log::error!("settings.json is damaged ({e}); copy kept: {kept}");
+            (recover(&text).unwrap_or_default(), kept)
+        }
+    }
+}
+
+/// The fields of a damaged settings file that still parse, merged over the
+/// defaults one by one. None when the file isn't a JSON object at all.
+pub fn recover(text: &str) -> Option<Settings> {
+    let Ok(serde_json::Value::Object(saved)) = serde_json::from_str::<serde_json::Value>(text) else { return None };
+    let mut merged = serde_json::to_value(Settings::default()).ok()?;
+    for (k, v) in saved {
+        let mut next = merged.clone();
+        next[k.as_str()] = v;
+        if serde_json::from_value::<Settings>(next.clone()).is_ok() {
+            merged = next;
+        }
+    }
+    serde_json::from_value(merged).ok()
 }
 
 /// One-time privacy migration: versions up to 0.4.18 turned sync on by default,
@@ -317,12 +361,28 @@ pub fn migrate_sync(s: &mut Settings) -> bool {
     false
 }
 
+/// Saves settings. Callers go through `dictation::update_settings`, which holds
+/// one lock across read, change and save.
 pub fn save(dir: &PathBuf, s: &Settings) -> anyhow::Result<()> {
-    std::fs::create_dir_all(dir)?;
-    let tmp = dir.join("settings.json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec_pretty(s)?)?;
-    std::fs::rename(tmp, path(dir))?;
+    if SAVE_BLOCKED.load(Ordering::SeqCst) {
+        anyhow::bail!(
+            "Toolbay Flow couldn't read your settings file, so it won't save over it. Quit and reopen Toolbay Flow to try again (the file is settings.json in {}).",
+            dir.display()
+        );
+    }
+    write_file(dir, s)?;
     crate::sync::poke();
+    Ok(())
+}
+
+fn write_file(dir: &PathBuf, s: &Settings) -> anyhow::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    let tmp = dir.join(format!("settings.json.tmp-{}-{}", std::process::id(), TMP_SEQ.fetch_add(1, Ordering::SeqCst)));
+    std::fs::write(&tmp, serde_json::to_vec_pretty(s)?)?;
+    if let Err(e) = std::fs::rename(&tmp, path(dir)) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.into());
+    }
     Ok(())
 }
 
@@ -378,6 +438,44 @@ mod tests {
         assert!(migrate_sync(&mut s));
         assert!(!s.sync_enabled);
         assert!(!migrate_sync(&mut s));
+    }
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("flow-settings-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn a_damaged_file_keeps_the_fields_that_still_parse() {
+        let s = recover(r#"{"onboarded": true, "name": "Ada", "sounds": "loud", "cleanup_level": "nonsense"}"#).unwrap();
+        assert!(s.onboarded);
+        assert_eq!(s.name, "Ada");
+        assert!(s.sounds);
+        assert_eq!(s.cleanup_level, CleanupLevel::Light);
+        assert!(recover("{ not json").is_none());
+    }
+
+    #[test]
+    fn a_damaged_file_is_copied_before_anything_saves_over_it() {
+        let d = temp_dir("damaged");
+        std::fs::write(path(&d), r#"{"onboarded": true, "sounds": 3}"#).unwrap();
+        let (s, safe) = read(&d);
+        assert!(s.onboarded);
+        assert!(safe);
+        let copies: Vec<_> = std::fs::read_dir(&d).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().starts_with("settings.json.bad-")).collect();
+        assert_eq!(copies.len(), 1);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_missing_file_is_defaults() {
+        let d = temp_dir("missing");
+        let (s, safe) = read(&d);
+        assert!(safe);
+        assert!(!s.onboarded);
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
