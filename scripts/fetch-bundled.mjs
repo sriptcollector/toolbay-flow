@@ -20,9 +20,10 @@ const MODEL = {
 
 const ENGINE = {
   windows: { id: "whisper-cpu", url: "https://github.com/ggml-org/whisper.cpp/releases/download/b5454/whisper-bin-x64.zip" },
+  // Intel Macs: the CPU (AVX2) build on engines-v2; Apple silicon: the Metal build on engines-v1.
   macos: {
     id: arch === "arm64" ? "whisper-metal" : "whisper-mac-intel",
-    url: `https://github.com/sriptcollector/toolbay-flow/releases/download/engines-v1/whisper-server-macos-${arch}.tar.gz`,
+    url: `https://github.com/sriptcollector/toolbay-flow/releases/download/${arch === "arm64" ? "engines-v1" : "engines-v2"}/whisper-server-macos-${arch}.tar.gz`,
   },
 }[os];
 

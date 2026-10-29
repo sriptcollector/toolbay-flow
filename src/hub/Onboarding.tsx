@@ -254,7 +254,7 @@ function Permissions({ next, back }: StepProps) {
   useEffect(() => {
     const check = () => {
       api.micCheck().then(setMic);
-      if (isMac) api.macPermissions().then(setMac);
+      if (isMac) api.macPermissions(false).then(setMac);
     };
     check();
     const t = setInterval(check, 2500);

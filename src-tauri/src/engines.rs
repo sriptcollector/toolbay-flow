@@ -101,10 +101,12 @@ pub const ENGINES: &[EngineInfo] = &[
     EngineInfo { id: "llama-metal", label: "Cleanup engine (Metal)", url: "https://github.com/ggml-org/llama.cpp/releases/download/b11748/llama-b11748-bin-macos-arm64.tar.gz", size_mb: 16, exe: "llama-server", gpu: true },
 ];
 
+// Intel Macs run both engines on the CPU (AVX2 build from engines-v2; Metal on Intel graphics
+// was slower than the CPU and the old engines-v1 build had no AVX).
 #[cfg(all(target_os = "macos", not(target_arch = "aarch64")))]
 pub const ENGINES: &[EngineInfo] = &[
-    EngineInfo { id: "whisper-mac-intel", label: "Speech engine", url: "https://github.com/sriptcollector/toolbay-flow/releases/download/engines-v1/whisper-server-macos-x86_64.tar.gz", size_mb: 4, exe: "whisper-server", gpu: true },
-    EngineInfo { id: "llama-mac-intel", label: "Cleanup engine", url: "https://github.com/ggml-org/llama.cpp/releases/download/b11748/llama-b11748-bin-macos-x64.tar.gz", size_mb: 12, exe: "llama-server", gpu: true },
+    EngineInfo { id: "whisper-mac-intel", label: "Speech engine", url: "https://github.com/sriptcollector/toolbay-flow/releases/download/engines-v2/whisper-server-macos-x86_64.tar.gz", size_mb: 4, exe: "whisper-server", gpu: false },
+    EngineInfo { id: "llama-mac-intel", label: "Cleanup engine", url: "https://github.com/ggml-org/llama.cpp/releases/download/b11748/llama-b11748-bin-macos-x64.tar.gz", size_mb: 12, exe: "llama-server", gpu: false },
 ];
 
 #[cfg(not(any(windows, target_os = "macos")))]
@@ -119,6 +121,10 @@ pub fn has_nvidia() -> bool {
     {
         false
     }
+}
+
+pub fn engine(id: &str) -> Option<&'static EngineInfo> {
+    ENGINES.iter().find(|e| e.id == id)
 }
 
 pub fn pick_engine(kind: &str, use_gpu: bool) -> Option<&'static EngineInfo> {
@@ -183,7 +189,13 @@ struct Progress<'a> {
 
 /// Streams a URL to `dest` with progress events, via a .part file.
 pub async fn download(app: &AppHandle, id: &str, url: &str, dest: &Path) -> Result<()> {
-    let client = reqwest::Client::builder().user_agent("ToolbayFlow/0.1").build()?;
+    // Connect and per-read timeouts: a stalled download fails and retries later instead of
+    // hanging forever (no overall timeout, big models take minutes on slow links).
+    let client = reqwest::Client::builder()
+        .user_agent("ToolbayFlow/0.1")
+        .connect_timeout(Duration::from_secs(15))
+        .read_timeout(Duration::from_secs(30))
+        .build()?;
     let resp = client.get(url).send().await?.error_for_status().with_context(|| format!("download {url}"))?;
     let total = resp.content_length().unwrap_or(0);
     let part = dest.with_extension("part");
@@ -275,6 +287,8 @@ pub struct Server {
     child: Child,
     pub port: u16,
     pub key: String,
+    /// Set once the server answers; until then other callers wait without the engine lock.
+    pub ready: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Drop for Server {
@@ -342,7 +356,35 @@ pub fn spawn_server(exe: &Path, args: &[String], key: String, log_path: &Path) -
     let child = cmd.spawn().with_context(|| format!("start {}", exe.display()))?;
     #[cfg(windows)]
     job::assign(child.id());
-    Ok(Server { child, port, key })
+    Ok(Server { child, port, key, ready: Default::default() })
+}
+
+/// Whether an engine's `--help` lists `flag`, so an option an older build doesn't know can't
+/// stop it from starting (whisper-server exits on unknown options). Checked once per binary.
+pub fn supports_flag(exe: &Path, flag: &str) -> bool {
+    use once_cell::sync::Lazy;
+    use std::collections::HashMap;
+    static SEEN: Lazy<Mutex<HashMap<(PathBuf, String), bool>>> = Lazy::new(Default::default);
+    let k = (exe.to_path_buf(), flag.to_string());
+    if let Some(v) = SEEN.lock().get(&k) {
+        return *v;
+    }
+    let mut cmd = Command::new(exe);
+    cmd.arg("--help").stdin(Stdio::null());
+    if let Some(dir) = exe.parent() {
+        cmd.current_dir(dir);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let yes = cmd
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains(flag) || String::from_utf8_lossy(&o.stderr).contains(flag))
+        .unwrap_or(false);
+    SEEN.lock().insert(k, yes);
+    yes
 }
 
 impl Server {
@@ -354,8 +396,10 @@ impl Server {
     }
 }
 
-pub async fn wait_ready(base: &str, path: &str, timeout: Duration) -> Result<()> {
-    let client = reqwest::Client::new();
+/// Polls until the server answers. `current` says whether this server is still the one in
+/// use (a model change replaces it), so a replaced server isn't waited on for the full timeout.
+pub async fn wait_ready(base: &str, path: &str, timeout: Duration, current: impl Fn() -> bool) -> Result<()> {
+    let client = crate::llm::local_client();
     let start = std::time::Instant::now();
     while start.elapsed() < timeout {
         if let Ok(r) = client.get(format!("{base}{path}")).timeout(Duration::from_secs(2)).send().await {
@@ -363,7 +407,10 @@ pub async fn wait_ready(base: &str, path: &str, timeout: Duration) -> Result<()>
                 return Ok(());
             }
         }
-        tokio::time::sleep(Duration::from_millis(250)).await;
+        if !current() {
+            return Err(anyhow!("engine was replaced while starting"));
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
     Err(anyhow!("engine did not become ready"))
 }
@@ -375,6 +422,21 @@ pub struct Engines {
     pub llama: Mutex<Option<Server>>,
 }
 
+/// Threads for the engines. On a Mac, physical cores: hyper-threads on Intel only add contention.
 pub fn threads() -> usize {
-    std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(2, 8)
+    static N: once_cell::sync::Lazy<usize> = once_cell::sync::Lazy::new(|| {
+        #[cfg(target_os = "macos")]
+        {
+            let physical = std::process::Command::new("/usr/sbin/sysctl")
+                .args(["-n", "hw.physicalcpu"])
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<usize>().ok());
+            if let Some(n) = physical.filter(|n| *n > 0) {
+                return n.clamp(2, 8);
+            }
+        }
+        std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(2, 8)
+    });
+    *N
 }

@@ -6,16 +6,33 @@ use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use std::time::Duration;
 
+// ---------------- clients ----------------
+
+/// One client for the local engines (127.0.0.1): connections are reused between requests, and
+/// no system proxy is looked up or used for localhost.
+pub fn local_client() -> &'static reqwest::Client {
+    static C: once_cell::sync::Lazy<reqwest::Client> =
+        once_cell::sync::Lazy::new(|| reqwest::Client::builder().no_proxy().build().unwrap_or_default());
+    &C
+}
+
+/// One client for the person's own cloud providers (system proxy honoured).
+fn cloud_client() -> &'static reqwest::Client {
+    static C: once_cell::sync::Lazy<reqwest::Client> = once_cell::sync::Lazy::new(reqwest::Client::new);
+    &C
+}
+
 // ---------------- speech ----------------
 
 pub async fn transcribe(base: &str, wav: Vec<u8>, language: &str, prompt: &str) -> Result<String> {
-    let client = reqwest::Client::new();
+    let client = local_client();
     let part = reqwest::multipart::Part::bytes(wav).file_name("audio.wav").mime_str("audio/wav")?;
     let mut form = reqwest::multipart::Form::new()
         .part("file", part)
         .text("response_format", "json")
         .text("temperature", "0.0")
-        .text("temperature_inc", "0.2")
+        // No temperature fallback: hard audio would otherwise be decoded up to 5 more times.
+        .text("temperature_inc", "0.0")
         .text("language", if language.is_empty() { "auto".to_string() } else { language.to_string() })
         .text("no_timestamps", "true");
     if !prompt.is_empty() {
@@ -40,7 +57,7 @@ pub async fn transcribe_cloud(cfg: &CloudLlm, wav: Vec<u8>, language: &str, prom
     if !prompt.is_empty() {
         form = form.text("prompt", prompt.chars().take(800).collect::<String>());
     }
-    let r = reqwest::Client::new()
+    let r = cloud_client()
         .post(format!("{}/audio/transcriptions", cfg.base_url.trim_end_matches('/')))
         .bearer_auth(&cfg.api_key)
         .multipart(form)
@@ -75,7 +92,7 @@ fn msg(role: &'static str, content: impl Into<String>) -> Msg {
 
 impl Llm {
     pub async fn chat(&self, system: &str, msgs: &[Msg], max_tokens: u32, timeout: Duration) -> Result<String> {
-        let client = reqwest::Client::new();
+        let client = if self.provider == LlmProvider::Local { local_client() } else { cloud_client() };
         let out = match self.provider {
             LlmProvider::Anthropic => {
                 let body = json!({

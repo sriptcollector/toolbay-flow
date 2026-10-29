@@ -214,12 +214,21 @@ function MacPermissionAlert() {
   const [resumed] = useState(() => resumedFrom() === "app");
   const [asked, setAsked] = useState(askedThisRun);
   const [thanks, setThanks] = useState(false);
+  // Everything is checked when the window gains focus (the 🌐-key setting only then); the
+  // 2 s poll runs only while something is still blocked, then stops.
+  const keep = (n: MacPermissions) => setP((old) => ({ ...n, fn_free: n.fn_free ?? old?.fn_free ?? null }));
   useEffect(() => {
-    const check = () => api.macPermissions().then(setP).catch(() => {});
+    const check = () => api.macPermissions(true).then(keep).catch(() => {});
     check();
-    const t = setInterval(check, 2000);
-    return () => clearInterval(t);
+    window.addEventListener("focus", check);
+    return () => window.removeEventListener("focus", check);
   }, []);
+  const allowed = !!p && p.microphone && p.input;
+  useEffect(() => {
+    if (!p || allowed) return;
+    const t = setInterval(() => api.macPermissions(false).then(keep).catch(() => {}), 2000);
+    return () => clearInterval(t);
+  }, [!!p, allowed]);
   // Input Monitoring lets the shortcut be heard. Flow never asks for Accessibility on a Mac.
   const ok = !!p && p.input;
   useEffect(() => {
@@ -277,7 +286,7 @@ function AccessibilityAlert({
       </div>
     );
   }
-  if (ok && !p.fn_free) {
+  if (ok && p.fn_free === false) {
     // Flow only watches keys now, so it can't stop macOS from also acting on 🌐.
     return (
       <div className="perm-alert" role="alert">

@@ -221,7 +221,8 @@ export const api = {
   micCheck: () => invoke<{ ok: boolean; message: string }>("mic_check"),
   openSystemSettings: (kind: string) => invoke<void>("open_system_settings", { kind }),
   restartApp: () => invoke<void>("restart_app"),
-  macPermissions: () => invoke<MacPermissions>("mac_permissions"),
+  /** `fnKey` also reads the 🌐-key setting (it starts a process, so only on window focus). */
+  macPermissions: (fnKey = true) => invoke<MacPermissions>("mac_permissions", { fnKey }),
 };
 
 export interface MacPermissions {
@@ -229,7 +230,8 @@ export interface MacPermissions {
   microphone: boolean;
   /** Input Monitoring: the shortcut listener. Flow never asks for Accessibility. */
   input: boolean;
-  fn_free: boolean;
+  /** Null when not read this time. */
+  fn_free: boolean | null;
 }
 
 export interface SyncStatus {

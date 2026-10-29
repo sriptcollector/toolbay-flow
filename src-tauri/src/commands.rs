@@ -73,7 +73,8 @@ pub struct Hardware {
     data_dir: String,
 }
 
-#[tauri::command]
+// Off the main thread: it checks the engine processes and folders.
+#[tauri::command(async)]
 pub fn hardware(st: State<St>) -> Hardware {
     let gpu = st.settings.read().use_gpu;
     let w = engines::pick_engine("whisper", gpu);
@@ -157,9 +158,12 @@ pub async fn start_engines(st: State<'_, St>) -> R<()> {
     Ok(())
 }
 
-#[tauri::command]
-pub fn list_mics() -> Vec<String> {
-    crate::audio::list_devices()
+#[tauri::command(async)]
+pub fn list_mics(app: AppHandle) -> Vec<String> {
+    let list = crate::audio::list_devices();
+    // A fresh list also keeps the tray's Microphone menu current.
+    crate::set_mics(&app, list.clone());
+    list
 }
 
 #[tauri::command]
@@ -167,7 +171,7 @@ pub fn mic_test(st: State<St>, on: bool) -> R<()> {
     dictation::mic_test(&st, on).map_err(e)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn history_list(st: State<St>, query: String, limit: i64, offset: i64) -> R<Vec<HistoryItem>> {
     st.db.list_history(&query, limit, offset).map_err(e)
 }
@@ -255,7 +259,7 @@ pub fn note_delete(st: State<St>, id: i64) -> R<()> {
     st.db.delete_note(id).map_err(e)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn stats(st: State<St>) -> R<Stats> {
     st.db.stats().map_err(e)
 }
@@ -273,7 +277,8 @@ pub async fn preview_cleanup(st: State<'_, St>, text: String, app_name: String) 
     dictation::format_text(&st, &text, &ctx).await.map_err(e)
 }
 
-#[tauri::command]
+// Off the main thread, so the bar's buttons never freeze the windows.
+#[tauri::command(async)]
 pub fn bar_action(st: State<St>, action: String) {
     let st = st.inner().clone();
     match action.as_str() {
@@ -468,7 +473,7 @@ pub struct MicCheck {
 }
 
 /// Can Flow open the microphone? Explains what to do when Windows blocks it.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mic_check(st: State<St>) -> MicCheck {
     if st.mic_test.load(Ordering::Relaxed) {
         return MicCheck { ok: true, message: String::new() };
@@ -502,17 +507,19 @@ pub struct MacPermissions {
     /// Input Monitoring: the (listen-only) shortcut listener. Flow never asks for Accessibility.
     input: bool,
     /// False when macOS also uses the Fn (🌐) key, so holding it opens emoji or dictation.
-    fn_free: bool,
+    /// None when not read this time (`fn_key` false).
+    fn_free: Option<bool>,
 }
 
 /// Whether macOS has allowed the microphone and the shortcut (Input Monitoring), and whether
-/// the Fn key is free for Flow.
-#[tauri::command]
-pub fn mac_permissions() -> MacPermissions {
+/// the Fn key is free for Flow. Reading the Fn setting starts a process, so the page only
+/// asks for it (`fn_key`) when the window gains focus. Runs off the main thread.
+#[tauri::command(async)]
+pub fn mac_permissions(fn_key: Option<bool>) -> MacPermissions {
     MacPermissions {
         microphone: !crate::macperm::microphone_blocked(),
         input: crate::macperm::input_monitoring(),
-        fn_free: crate::macperm::fn_key_usage() == Some(0),
+        fn_free: fn_key.unwrap_or(true).then(|| crate::macperm::fn_key_usage() == Some(0)),
     }
 }
 

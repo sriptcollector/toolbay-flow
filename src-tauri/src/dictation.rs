@@ -153,7 +153,10 @@ pub struct State {
     pub db: Db,
     pub paths: Paths,
     pub engines: Engines,
-    pub engine_lock: tokio::sync::Mutex<()>,
+    /// One lock per engine, held only while choosing and spawning it: the cleanup engine's
+    /// download or start-up never makes speech wait.
+    pub speech_lock: tokio::sync::Mutex<()>,
+    pub cleanup_lock: tokio::sync::Mutex<()>,
     rec: Mutex<Recorder>,
     session: Mutex<Session>,
     pub hk: Arc<hotkeys::Shared>,
@@ -205,7 +208,8 @@ impl State {
             settings_write: Mutex::new(()),
             db,
             engines: Engines::default(),
-            engine_lock: tokio::sync::Mutex::new(()),
+            speech_lock: tokio::sync::Mutex::new(()),
+            cleanup_lock: tokio::sync::Mutex::new(()),
             rec: Mutex::new(Recorder::new()),
             session: Mutex::new(Session {
                 phase: Phase::Idle,
@@ -251,96 +255,128 @@ impl State {
 
 // ---------------- engines ----------------
 
+/// The server in `slot` if it runs with `key` (its address, ready flag and port); otherwise
+/// the slot is cleared, stopping any old server.
+fn running(slot: &Mutex<Option<engines::Server>>, key: &str) -> Option<(String, Arc<AtomicBool>, u16)> {
+    let mut g = slot.lock();
+    if let Some(srv) = g.as_mut() {
+        if srv.key == key && srv.alive() {
+            return Some((srv.base(), srv.ready.clone(), srv.port));
+        }
+    }
+    *g = None;
+    None
+}
+
 pub async fn ensure_whisper(st: &St) -> Result<String> {
-    let _g = st.engine_lock.lock().await;
-    let use_gpu = st.settings.read().use_gpu;
-    let (model_id, model_path) = crate::models::current_speech_path(st).ok_or_else(|| anyhow!("Toolbay Flow is still getting its speech model. Try again in a moment."))?;
-    // Prefer the GPU engine once it is downloaded; until then use the bundled CPU one.
-    let mut eng = engines::pick_engine("whisper", use_gpu).ok_or_else(|| anyhow!("No speech engine for this platform"))?;
-    let mut exe = st.paths.engine_exe(eng).or_else(|| crate::models::bundled_engine_exe(st, eng));
-    if exe.is_none() {
-        if let Some(cpu) = engines::pick_engine("whisper", false) {
-            if let Some(b) = crate::models::bundled_engine_exe(st, cpu) {
-                eng = cpu;
-                exe = Some(b);
+    let (base, ready, port, fresh) = {
+        // Held only while choosing and spawning; the readiness wait and warm-up below run
+        // without it, so nobody queues behind a slow start-up.
+        let _g = st.speech_lock.lock().await;
+        let use_gpu = st.settings.read().use_gpu;
+        let (model_id, model_path) = crate::models::current_speech_path(st).ok_or_else(|| anyhow!("Toolbay Flow is still getting its speech model. Try again in a moment."))?;
+        // Prefer the GPU engine once it is downloaded; until then use the bundled CPU one.
+        let mut eng = engines::pick_engine("whisper", use_gpu).ok_or_else(|| anyhow!("No speech engine for this platform"))?;
+        let mut exe = st.paths.engine_exe(eng).or_else(|| crate::models::bundled_engine_exe(st, eng));
+        if exe.is_none() {
+            if let Some(cpu) = engines::pick_engine("whisper", false) {
+                if let Some(b) = crate::models::bundled_engine_exe(st, cpu) {
+                    eng = cpu;
+                    exe = Some(b);
+                }
             }
         }
-    }
-    let key = format!("{}|{}", eng.id, model_id);
-    {
-        let mut w = st.engines.whisper.lock();
-        if let Some(srv) = w.as_mut() {
-            if srv.key == key && srv.alive() {
-                return Ok(srv.base());
+        let key = format!("{}|{}", eng.id, model_id);
+        if let Some((base, ready, port)) = running(&st.engines.whisper, &key) {
+            (base, ready, port, false)
+        } else {
+            let exe = match exe {
+                Some(e) => e,
+                None => engines::ensure_engine(&st.app, &st.paths, eng).await?,
+            };
+            let mut args = vec![
+                "-m".to_string(),
+                model_path.to_string_lossy().to_string(),
+                "-t".into(),
+                engines::threads().to_string(),
+                "-nt".into(),
+                "-sns".into(),
+            ];
+            if !eng.gpu {
+                args.push("-ng".into());
             }
+            // Flash attention: a faster encoder, most of all on Metal. Only if this build knows it.
+            if engines::supports_flag(&exe, "--flash-attn") {
+                args.push("-fa".into());
+            }
+            let srv = engines::spawn_server(&exe, &args, key, &st.data_dir.join("whisper-server.log"))?;
+            let r = (srv.base(), srv.ready.clone(), srv.port, true);
+            *st.engines.whisper.lock() = Some(srv);
+            r
         }
-        *w = None;
-    }
-    let exe = match exe {
-        Some(e) => e,
-        None => engines::ensure_engine(&st.app, &st.paths, eng).await?,
     };
-    let mut args = vec![
-        "-m".to_string(),
-        model_path.to_string_lossy().to_string(),
-        "-t".into(),
-        engines::threads().to_string(),
-        "-nt".into(),
-        "-sns".into(),
-    ];
-    if !eng.gpu {
-        args.push("-ng".into());
+    if ready.load(Ordering::SeqCst) {
+        return Ok(base);
     }
-    let srv = engines::spawn_server(&exe, &args, key, &st.data_dir.join("whisper-server.log"))?;
-    let base = srv.base();
-    *st.engines.whisper.lock() = Some(srv);
-    engines::wait_ready(&base, "/", Duration::from_secs(90)).await?;
-    // Warm-up: the first inference initializes GPU kernels.
-    let _ = llm::transcribe(&base, audio::to_wav(&vec![0f32; 16000]), "en", "").await;
+    let current = || st.engines.whisper.lock().as_ref().map(|s| s.port) == Some(port);
+    engines::wait_ready(&base, "/", Duration::from_secs(90), current).await?;
+    if fresh {
+        // Warm-up: the first inference initializes GPU kernels.
+        let _ = llm::transcribe(&base, audio::to_wav(&vec![0f32; 16000]), "en", "").await;
+        ready.store(true, Ordering::SeqCst);
+    }
     Ok(base)
 }
 
 pub async fn ensure_llama(st: &St) -> Result<String> {
-    let _g = st.engine_lock.lock().await;
-    let (model_id, use_gpu) = {
-        let s = st.settings.read();
-        (s.local_llm_model.clone(), s.use_gpu)
-    };
-    let m = engines::model(&model_id).ok_or_else(|| anyhow!("Unknown cleanup model"))?;
-    let model_path = crate::models::model_file(st, m).ok_or_else(|| anyhow!("The AI cleanup model is still downloading"))?;
-    let eng = engines::pick_engine("llama", use_gpu).ok_or_else(|| anyhow!("No cleanup engine for this platform"))?;
-    let key = format!("{}|{}", eng.id, model_id);
-    {
-        let mut l = st.engines.llama.lock();
-        if let Some(srv) = l.as_mut() {
-            if srv.key == key && srv.alive() {
-                return Ok(srv.base());
+    let (base, ready, port, fresh) = {
+        // Held only while choosing, downloading and spawning (see ensure_whisper).
+        let _g = st.cleanup_lock.lock().await;
+        let (model_id, use_gpu) = {
+            let s = st.settings.read();
+            (s.local_llm_model.clone(), s.use_gpu)
+        };
+        let m = engines::model(&model_id).ok_or_else(|| anyhow!("Unknown cleanup model"))?;
+        let model_path = crate::models::model_file(st, m).ok_or_else(|| anyhow!("The AI cleanup model is still downloading"))?;
+        let eng = engines::pick_engine("llama", use_gpu).ok_or_else(|| anyhow!("No cleanup engine for this platform"))?;
+        let key = format!("{}|{}", eng.id, model_id);
+        if let Some((base, ready, port)) = running(&st.engines.llama, &key) {
+            (base, ready, port, false)
+        } else {
+            let exe = engines::ensure_engine(&st.app, &st.paths, eng).await?;
+            // 4096 tokens hold the cleanup prompt, a long dictation and its answer, with half
+            // the memory (and a quicker start) of 8192.
+            let mut args = vec![
+                "-m".to_string(),
+                model_path.to_string_lossy().to_string(),
+                "-c".into(),
+                "4096".into(),
+                "-np".into(),
+                "1".into(),
+                "-t".into(),
+                engines::threads().to_string(),
+                "--no-webui".into(),
+                "--jinja".into(),
+            ];
+            if eng.gpu {
+                args.extend(["-ngl".into(), "99".into()]);
+            } else {
+                args.extend(["-ngl".into(), "0".into()]);
             }
+            let srv = engines::spawn_server(&exe, &args, key, &st.data_dir.join("llama-server.log"))?;
+            let r = (srv.base(), srv.ready.clone(), srv.port, true);
+            *st.engines.llama.lock() = Some(srv);
+            r
         }
-        *l = None;
+    };
+    if ready.load(Ordering::SeqCst) {
+        return Ok(base);
     }
-    let exe = engines::ensure_engine(&st.app, &st.paths, eng).await?;
-    let mut args = vec![
-        "-m".to_string(),
-        model_path.to_string_lossy().to_string(),
-        "-c".into(),
-        "8192".into(),
-        "-np".into(),
-        "1".into(),
-        "-t".into(),
-        engines::threads().to_string(),
-        "--no-webui".into(),
-        "--jinja".into(),
-    ];
-    if eng.gpu {
-        args.extend(["-ngl".into(), "99".into()]);
-    } else {
-        args.extend(["-ngl".into(), "0".into()]);
+    let current = || st.engines.llama.lock().as_ref().map(|s| s.port) == Some(port);
+    engines::wait_ready(&base, "/health", Duration::from_secs(120), current).await?;
+    if !fresh {
+        return Ok(base);
     }
-    let srv = engines::spawn_server(&exe, &args, key, &st.data_dir.join("llama-server.log"))?;
-    let base = srv.base();
-    *st.engines.llama.lock() = Some(srv);
-    engines::wait_ready(&base, "/health", Duration::from_secs(120)).await?;
     // Warm-up: compiles GPU shaders and caches the cleanup prompt prefix.
     let warm = Llm {
         provider: LlmProvider::Local,
@@ -364,6 +400,7 @@ pub async fn ensure_llama(st: &St) -> Result<String> {
     };
     let (sys, msgs) = llm::cleanup_messages(&input);
     let _ = warm.chat(&sys, &msgs, 16, Duration::from_secs(60)).await;
+    ready.store(true, Ordering::SeqCst);
     Ok(base)
 }
 
@@ -392,6 +429,45 @@ async fn llm_for(st: &St) -> Result<Llm> {
     };
     let local_base = if provider == LlmProvider::Local { Some(ensure_llama(st).await?) } else { None };
     Ok(Llm { provider, local_base, cloud, anthropic })
+}
+
+// ---------------- App Nap ----------------
+
+/// macOS: an activity held from the start of a recording until its text is on the clipboard,
+/// so App Nap and timer coalescing never slow a dictation down while Flow is in the background.
+#[cfg(target_os = "macos")]
+mod busy {
+    use objc2::rc::Retained;
+    use objc2::runtime::{NSObjectProtocol, ProtocolObject};
+    use objc2_foundation::{NSActivityOptions, NSProcessInfo, NSString};
+    use std::sync::Mutex;
+
+    struct Token(Retained<ProtocolObject<dyn NSObjectProtocol>>);
+    // NSProcessInfo's activity calls are thread-safe; the token is only ever handed back to it.
+    unsafe impl Send for Token {}
+    static ACTIVITY: Mutex<Option<Token>> = Mutex::new(None);
+
+    pub fn begin() {
+        let Ok(mut a) = ACTIVITY.lock() else { return };
+        if a.is_none() {
+            let opts = NSActivityOptions::UserInitiated | NSActivityOptions::LatencyCritical;
+            let t = NSProcessInfo::processInfo().beginActivityWithOptions_reason(opts, &NSString::from_str("Dictation"));
+            *a = Some(Token(t));
+        }
+    }
+
+    pub fn end() {
+        let t = ACTIVITY.lock().ok().and_then(|mut a| a.take());
+        if let Some(Token(t)) = t {
+            unsafe { NSProcessInfo::processInfo().endActivity(&t) };
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+mod busy {
+    pub fn begin() {}
+    pub fn end() {}
 }
 
 // ---------------- hotkeys ----------------
@@ -541,16 +617,17 @@ pub fn recover(st: &St) {
     }
     *st.in_flight.lock() = Some(r.clone());
     st.hk.dismiss_armed.store(true, Ordering::Relaxed);
+    busy::begin();
     st.bar("processing", Some(r.mode), None);
     let gen = st.generation.load(Ordering::SeqCst);
     let st2 = st.clone();
     tauri::async_runtime::spawn(async move {
         let released = Instant::now();
         let res = async {
-            let raw = transcribe_with(&st2, &r.samples, "").await?;
+            let (raw, speech) = transcribe_timed(&st2, &r.samples, "").await?;
             let read_text = st2.settings.read().context_awareness;
             let ctx = tokio::task::spawn_blocking(move || context::capture(read_text)).await.unwrap_or_default();
-            process(&st2, raw, r.samples.clone(), r.mode, ctx, r.dur, gen, released).await
+            process(&st2, raw, r.samples.clone(), r.mode, ctx, r.dur, gen, released, speech).await
         }
         .await;
         if matches!(res, Ok(Some(_))) && r.hist_id > 0 {
@@ -593,8 +670,9 @@ pub fn start(st: &St, mode: Mode) {
         });
     }
     let app = st.app.clone();
+    // About 30 times a second, so only to the bar, the one window that draws it.
     let res = st.rec.lock().start(s.microphone.clone(), Arc::new(move |lvl| {
-        let _ = app.emit("bar-level", lvl);
+        let _ = app.emit_to("bar", "bar-level", lvl);
     }));
     if let Err(e) = res {
         sounds::play(Sound::Error);
@@ -602,6 +680,7 @@ pub fn start(st: &St, mode: Mode) {
         return;
     }
     *st.last_activity.lock() = Instant::now();
+    busy::begin();
     let stream = Arc::new(Mutex::new(StreamState::default()));
     {
         let mut ss = st.session.lock();
@@ -624,7 +703,9 @@ pub fn start(st: &St, mode: Mode) {
         if st2.settings.read().engine != "cloud" {
             let _ = ensure_whisper(&st2).await;
         }
-        stream_loop(st2, stream, gen).await;
+        if live_chunks(&st2) {
+            stream_loop(st2, stream, gen).await;
+        }
     });
     let started = st.session.lock().started;
     let still_recording = move |st: &St| {
@@ -687,6 +768,19 @@ pub struct StreamState {
     busy: bool,
 }
 
+/// Whether to transcribe while the person is still talking. Whisper always works on a 30 s
+/// window, so on a Mac's GPU engine each chunk costs about as much as the whole recording:
+/// chunks save nothing there and a release mid-chunk waits for it. One request on release.
+fn live_chunks(st: &St) -> bool {
+    if !cfg!(target_os = "macos") || st.settings.read().engine == "cloud" {
+        return true;
+    }
+    // The engine actually running (it may be the CPU fallback), else the one Flow would pick.
+    let running = st.engines.whisper.lock().as_ref().and_then(|s| s.key.split('|').next().and_then(engines::engine)).map(|e| e.gpu);
+    let gpu = running.unwrap_or_else(|| engines::pick_engine("whisper", st.settings.read().use_gpu).map(|e| e.gpu).unwrap_or(false));
+    !gpu
+}
+
 async fn stream_loop(st: St, stream: Arc<Mutex<StreamState>>, gen: u64) {
     const MIN_CHUNK: usize = 16_000 * 6;
     loop {
@@ -727,6 +821,7 @@ async fn stream_loop(st: St, stream: Arc<Mutex<StreamState>>, gen: u64) {
 /// Silent, like the original (its cancel has no sound).
 fn discard(st: &St) -> Vec<f32> {
     let samples = st.rec.lock().stop();
+    busy::end();
     st.session.lock().phase = Phase::Idle;
     st.hk.dismiss_armed.store(false, Ordering::Relaxed);
     st.bar("idle", None, None);
@@ -747,8 +842,10 @@ fn cancel_keep(st: &St) -> bool {
             Some(Recovery { samples, mode, dur, hist_id: 0 })
         }
         Phase::Processing => {
-            discard(st);
-            st.in_flight.lock().take()
+            // Cancelled in the moment after release, before the recording was handed over:
+            // the microphone still holds it.
+            let samples = discard(st);
+            st.in_flight.lock().take().or_else(|| (!samples.is_empty()).then(|| Recovery { samples, mode, dur, hist_id: 0 }))
         }
         Phase::Idle => return false,
     };
@@ -785,32 +882,37 @@ pub fn cancel(st: &St) {
 
 pub fn stop(st: &St) {
     let released = Instant::now();
-    // People let go of the key on their last syllable: keep listening a moment so
-    // the final word and the audio still in the device buffer make it in.
-    std::thread::sleep(Duration::from_millis(250));
-    let mut samples = st.rec.lock().stop();
     let (mode, ctx_slot, dur, stream) = {
         let mut ss = st.session.lock();
         ss.phase = Phase::Processing;
         ss.processing_since = Instant::now();
         (ss.mode, ss.ctx.clone(), ss.started.elapsed(), ss.stream.clone())
     };
-    // Developer hook for automated end-to-end tests: replace the microphone
-    // recording with a 16 kHz mono WAV file.
-    if let Ok(p) = std::env::var("TOOLBAY_FLOW_TEST_AUDIO") {
-        if let Ok(s) = std::fs::read(&p).map_err(anyhow::Error::from).and_then(|b| audio::from_wav(&b)) {
-            samples = s;
-            *stream.lock() = StreamState::default();
-        }
-    }
     if st.settings.read().sounds {
         sounds::play(Sound::Stop);
     }
     st.bar("processing", Some(mode), None);
-    *st.in_flight.lock() = Some(Recovery { samples: samples.clone(), mode, dur, hist_id: 0 });
     let gen = st.generation.load(Ordering::SeqCst);
     let st2 = st.clone();
     tauri::async_runtime::spawn(async move {
+        // People let go of the key on their last syllable: keep listening a moment so
+        // the final word and the audio still in the device buffer make it in. Waited here,
+        // never on the hotkey thread or the UI's.
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        if st2.generation.load(Ordering::SeqCst) != gen {
+            // Cancelled meanwhile; the cancel already stopped the microphone.
+            return;
+        }
+        let mut samples = st2.rec.lock().stop();
+        // Developer hook for automated end-to-end tests: replace the microphone
+        // recording with a 16 kHz mono WAV file.
+        if let Ok(p) = std::env::var("TOOLBAY_FLOW_TEST_AUDIO") {
+            if let Ok(s) = std::fs::read(&p).map_err(anyhow::Error::from).and_then(|b| audio::from_wav(&b)) {
+                samples = s;
+                *stream.lock() = StreamState::default();
+            }
+        }
+        *st2.in_flight.lock() = Some(Recovery { samples: samples.clone(), mode, dur, hist_id: 0 });
         let res = async {
             if audio::all_zero(&samples) {
                 // Not quiet: blocked. Say so instead of treating it as "no speech".
@@ -833,7 +935,7 @@ pub fn stop(st: &St) {
             };
             let prev = parts.join(" ");
             let tail = &samples[committed..];
-            let tail_text = if audio::has_speech(tail) || committed == 0 { transcribe_with(&st2, tail, &prev).await? } else { String::new() };
+            let (tail_text, speech) = if audio::has_speech(tail) || committed == 0 { transcribe_timed(&st2, tail, &prev).await? } else { (String::new(), None) };
             let raw = [prev, tail_text].iter().filter(|t| !t.trim().is_empty()).cloned().collect::<Vec<_>>().join(" ");
             let mut ctx = None;
             for _ in 0..40 {
@@ -843,7 +945,7 @@ pub fn stop(st: &St) {
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
-            process(&st2, raw, samples, mode, ctx.unwrap_or_default(), dur, gen, released).await
+            process(&st2, raw, samples, mode, ctx.unwrap_or_default(), dur, gen, released, speech).await
         }
         .await;
         finish(&st2, gen, mode, res);
@@ -858,6 +960,7 @@ fn finish(st: &St, gen: u64, mode: Mode, res: Result<Option<String>>) {
     }
     st.session.lock().phase = Phase::Idle;
     st.hk.dismiss_armed.store(false, Ordering::Relaxed);
+    busy::end();
     let flight = st.in_flight.lock().take();
     match res {
         Ok(Some(msg)) => {
@@ -901,6 +1004,19 @@ pub async fn transcribe(st: &St, samples: &[f32]) -> Result<String> {
 
 /// Transcribe, giving the speech model the user's vocabulary and the text so far.
 pub async fn transcribe_with(st: &St, samples: &[f32], previous: &str) -> Result<String> {
+    Ok(transcribe_timed(st, samples, previous).await?.0)
+}
+
+/// How long the local speech engine's own request took, for how much audio. Cloud requests
+/// aren't timed: Auto only steps down local models.
+#[derive(Clone, Copy)]
+pub struct SpeechTiming {
+    pub request: Duration,
+    pub audio_ms: u64,
+}
+
+/// transcribe_with, also returning the local engine's request time.
+pub async fn transcribe_timed(st: &St, samples: &[f32], previous: &str) -> Result<(String, Option<SpeechTiming>)> {
     let (cloud, cloud_cfg) = {
         let s = st.settings.read();
         (s.engine == "cloud" && !s.cloud_asr.api_key.is_empty(), s.cloud_asr.clone())
@@ -924,26 +1040,35 @@ pub async fn transcribe_with(st: &St, samples: &[f32], previous: &str) -> Result
         }
         prompt.push_str(&llm::tail(previous, 300));
     }
-    let raw = if cloud {
+    let audio_ms = (padded.len() / 16) as u64;
+    let local = |base: String, wav: Vec<u8>| {
+        let (lang, prompt) = (lang.clone(), prompt.clone());
+        async move {
+            let t0 = Instant::now();
+            let text = llm::transcribe(&base, wav, &lang, &prompt).await?;
+            anyhow::Ok((text, Some(SpeechTiming { request: t0.elapsed(), audio_ms })))
+        }
+    };
+    let (raw, timing) = if cloud {
         match llm::transcribe_cloud(&cloud_cfg, wav.clone(), &lang, &prompt).await {
-            Ok(t) => t,
+            Ok(t) => (t, None),
             Err(e) => {
                 // Offline or key problem: fall back to the local engine so nothing is lost.
                 log::warn!("cloud speech failed, using local: {e:#}");
                 let base = ensure_whisper(st).await?;
-                llm::transcribe(&base, wav, &lang, &prompt).await?
+                local(base, wav).await?
             }
         }
     } else {
         let base = ensure_whisper(st).await?;
-        llm::transcribe(&base, wav, &lang, &prompt).await?
+        local(base, wav).await?
     };
     let text = textproc::strip_artifacts(&raw);
     // Whisper invents "Thank you." on near-silent audio; only drop it then.
     if audio::speech_seconds(samples) < 0.5 && textproc::is_silence_hallucination(&text) {
-        return Ok(String::new());
+        return Ok((String::new(), timing));
     }
-    Ok(text)
+    Ok((text, timing))
 }
 
 fn style_for(s: &Settings, category: &str) -> Style {
@@ -957,24 +1082,37 @@ fn style_for(s: &Settings, category: &str) -> Style {
 
 /// Turns a raw transcript into final text for the given context.
 pub async fn format_text(st: &St, raw: &str, ctx: &FocusContext) -> Result<String> {
+    Ok(format_text_timed(st, raw, ctx).await?.0)
+}
+
+/// format_text, also returning how long the local cleanup model's request took (if one ran).
+pub async fn format_text_timed(st: &St, raw: &str, ctx: &FocusContext) -> Result<(String, Option<Duration>)> {
     let s = st.settings.read().clone();
     let dict: Vec<DictEntry> = [st.db.list_dict(false).unwrap_or_default(), st.db.list_dict(true).unwrap_or_default()].concat();
     let needs_llm = matches!(s.cleanup_level, CleanupLevel::Medium | CleanupLevel::High) && raw.split_whitespace().count() > 3;
     let llm = if needs_llm { llm_for(st).await } else { Err(anyhow!("not needed")) };
-    let (text, used) = clean_text(&s, &dict, llm, raw, ctx).await;
+    let local = s.llm_provider == LlmProvider::Local;
+    let (text, used, took) = clean_text_timed(&s, &dict, llm, raw, ctx).await;
     for id in used {
         st.db.bump_dict_use(id);
     }
-    Ok(text)
+    Ok((text, took.filter(|_| local)))
 }
 
 /// The whole cleanup pipeline, shared by dictation and the self-test: snippets,
 /// rules or the language model, style, dictionary replacements, and joining with
 /// the text already in the field. Returns the text and the dictionary ids used.
 pub async fn clean_text(s: &Settings, dict: &[DictEntry], llm: Result<Llm>, raw: &str, ctx: &FocusContext) -> (String, Vec<i64>) {
+    let (text, ids, _) = clean_text_timed(s, dict, llm, raw, ctx).await;
+    (text, ids)
+}
+
+/// clean_text, also returning how long the language model's request took (if one was sent).
+pub async fn clean_text_timed(s: &Settings, dict: &[DictEntry], llm: Result<Llm>, raw: &str, ctx: &FocusContext) -> (String, Vec<i64>, Option<Duration>) {
     if let Some(sn) = textproc::exact_snippet(raw, dict) {
-        return (sn.replacement.clone().unwrap_or_default(), vec![sn.id]);
+        return (sn.replacement.clone().unwrap_or_default(), vec![sn.id], None);
     }
+    let mut took = None;
     let category = textproc::app_category(&ctx.exe, &ctx.window_title, &ctx.url, &s.app_categories);
     let style = style_for(s, &category);
     let mut used_llm = false;
@@ -1001,7 +1139,12 @@ pub async fn clean_text(s: &Settings, dict: &[DictEntry], llm: Result<Llm>, raw:
             let (system, msgs) = llm::cleanup_messages(&input);
             let max_tokens = (raw.split_whitespace().count() as u32 * 2 + 48).min(1500);
             let out = match llm {
-                Ok(l) => l.chat(&system, &msgs, max_tokens, Duration::from_secs(20)).await,
+                Ok(l) => {
+                    let t0 = Instant::now();
+                    let r = l.chat(&system, &msgs, max_tokens, Duration::from_secs(20)).await;
+                    took = Some(t0.elapsed());
+                    r
+                }
                 Err(e) => Err(e),
             };
             match out {
@@ -1026,7 +1169,7 @@ pub async fn clean_text(s: &Settings, dict: &[DictEntry], llm: Result<Llm>, raw:
     let (t, mut ids) = textproc::apply_replacements(&text, dict);
     let (t, ids2) = textproc::expand_snippets(&t, dict);
     ids.extend(ids2);
-    (join_with_context(&t, &ctx.before, used_llm), ids)
+    (join_with_context(&t, &ctx.before, used_llm), ids, took)
 }
 
 /// Small models sometimes repeat the context text before the answer; drop it.
@@ -1068,7 +1211,7 @@ fn join_with_context(text: &str, before: &str, used_llm: bool) -> String {
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn process(st: &St, raw: String, samples: Vec<f32>, mode: Mode, ctx: FocusContext, dur: Duration, gen: u64, released: Instant) -> Result<Option<String>> {
+async fn process(st: &St, raw: String, samples: Vec<f32>, mode: Mode, ctx: FocusContext, dur: Duration, gen: u64, released: Instant, speech: Option<SpeechTiming>) -> Result<Option<String>> {
     let speech_ms = released.elapsed().as_millis() as u64;
     let keep_audio = st.settings.read().keep_audio;
     let audio_bytes = if keep_audio { Some(audio::to_wav(&samples)) } else { None };
@@ -1087,6 +1230,7 @@ async fn process(st: &St, raw: String, samples: Vec<f32>, mode: Mode, ctx: Focus
             press_enter = true;
         }
     }
+    let mut cleanup_took = None;
     let (text, mode_name) = if mode == Mode::Command {
         let mut selected = ctx.selected.clone();
         if selected.trim().is_empty() && !is_terminal(&ctx.exe) {
@@ -1100,7 +1244,9 @@ async fn process(st: &St, raw: String, samples: Vec<f32>, mode: Mode, ctx: Focus
         }
         (out, "command")
     } else {
-        (format_text(st, &raw, &ctx).await?, "dictation")
+        let (t, took) = format_text_timed(st, &raw, &ctx).await?;
+        cleanup_took = took;
+        (t, "dictation")
     };
     if st.generation.load(Ordering::SeqCst) != gen {
         return Ok(None);
@@ -1124,8 +1270,10 @@ async fn process(st: &St, raw: String, samples: Vec<f32>, mode: Mode, ctx: Focus
     }
     // Release-to-paste latency, the number that makes dictation feel instant or not.
     let latency = released.elapsed().as_millis() as i64;
-    let cleanup_ms = (latency as u64).saturating_sub(speech_ms);
-    crate::models::record_latency(st, (samples.len() / 16) as u64, speech_ms, if mode == Mode::Command { None } else { Some(cleanup_ms) });
+    // Auto's step-down looks at the engines' own request times only (no waits, no start-up).
+    if let Some(sp) = speech {
+        crate::models::record_latency(st, sp.audio_ms, sp.request.as_millis() as u64, cleanup_took.map(|d| d.as_millis() as u64));
+    }
 
     let policy = st.settings.read().data_policy.clone();
     let mut hid = 0;
@@ -1431,11 +1579,7 @@ fn apply_locked(st: &St, old: &Settings, mut new: Settings) -> Result<()> {
     if let Some(bar) = st.app.get_webview_window("bar") {
         // A snoozed bar keeps its window (for the "hidden for an hour" notice);
         // the bar page hides the pill itself.
-        if new.show_bar {
-            let _ = bar.show();
-        } else {
-            let _ = bar.hide();
-        }
+        crate::show_bar_window(&bar, new.show_bar);
         let _ = st.app.emit("bar-snoozed", new.bar_snooze_until);
     }
     *st.settings.write() = new;

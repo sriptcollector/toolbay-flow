@@ -94,7 +94,9 @@ pub fn recommend(h: &Hardware, language: &str) -> Choice {
     let nvidia = h.gpu_vendor == "nvidia";
     let apple = h.gpu_vendor == "apple";
     let other_gpu = matches!(h.gpu_vendor.as_str(), "amd" | "intel") && h.vram_mb >= 3500;
-    if (nvidia && h.vram_mb >= 6000) || (apple && h.ram_mb >= 15000) {
+    // Apple silicon shares its memory between the models and everything else: the 4B cleanup
+    // model only from 24 GB, and under 12 GB a small speech model with rule cleanup.
+    if (nvidia && h.vram_mb >= 6000) || (apple && h.ram_mb >= 24_000) {
         Choice {
             tier: "fast-gpu",
             speech_model: "large-v3-turbo-q5".into(),
@@ -102,13 +104,21 @@ pub fn recommend(h: &Hardware, language: &str) -> Choice {
             cleanup: CleanupLevel::Medium,
             why: format!("{} with {} GB", h.gpu_name, h.vram_mb / 1024),
         }
-    } else if nvidia && h.vram_mb >= 3000 || apple {
+    } else if nvidia && h.vram_mb >= 3000 || apple && h.ram_mb >= 12_000 {
         Choice {
             tier: "gpu",
             speech_model: "large-v3-turbo-q5".into(),
             llm_model: "qwen3-1.7b".into(),
             cleanup: CleanupLevel::Medium,
             why: format!("{} with {} GB", h.gpu_name, h.vram_mb / 1024),
+        }
+    } else if apple {
+        Choice {
+            tier: "apple-light",
+            speech_model: ml("small.en-q5", "small-q5"),
+            llm_model: "qwen3-1.7b".into(),
+            cleanup: CleanupLevel::Light,
+            why: format!("{} with {} GB memory", h.gpu_name, h.ram_mb / 1024),
         }
     } else if other_gpu {
         Choice {
@@ -167,6 +177,9 @@ pub fn current_speech_path(st: &St) -> Option<(String, PathBuf)> {
     None
 }
 
+/// Median cleanup request time above which Auto steps the cleanup model down.
+pub const SLOW_CLEANUP_MS: u64 = 700;
+
 static UPGRADING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Serialize)]
@@ -195,8 +208,10 @@ pub fn auto_setup(st: &St) {
             }
         }
         if s.auto_slow_speech {
+            // Step down one size, keeping the multilingual model for other languages.
+            let english = s.language == "en";
             choice.speech_model = match choice.speech_model.as_str() {
-                "large-v3-turbo-q5" => "small.en-q5".into(),
+                "large-v3-turbo-q5" => (if english { "small.en-q5" } else { "small-q5" }).into(),
                 "small.en-q5" => "base.en-q5".into(),
                 "small-q5" => "base-q5".into(),
                 other => other.into(),
@@ -270,7 +285,9 @@ pub fn bundled_engine_exe(st: &St, e: &engines::EngineInfo) -> Option<PathBuf> {
 }
 
 /// Rolling latency check: if this computer is too slow for the chosen models,
-/// step down once and let Auto pick again.
+/// step down once and let Auto pick again. `speech_ms` is the speech engine's own request time
+/// for `audio_ms` of audio, `cleanup_ms` the cleanup model's request time (no waits, no
+/// engine start-up, no pasting).
 pub fn record_latency(st: &St, audio_ms: u64, speech_ms: u64, cleanup_ms: Option<u64>) {
     use parking_lot::Mutex;
     use once_cell::sync::Lazy;
@@ -291,12 +308,34 @@ pub fn record_latency(st: &St, audio_ms: u64, speech_ms: u64, cleanup_ms: Option
     v.clear();
     drop(v);
     let slow_speech = rtfs[rtfs.len() / 2] > 0.35;
-    let slow_cleanup = !cl.is_empty() && cl[cl.len() / 2] > 1500;
+    let slow_cleanup = !cl.is_empty() && cl[cl.len() / 2] > SLOW_CLEANUP_MS;
     let changed = crate::dictation::update_settings(st, |s| {
         s.auto_slow_speech |= slow_speech;
         s.auto_slow_cleanup |= slow_cleanup;
     });
     if matches!(changed, Ok(true)) {
         auto_setup(st);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mac(ram_gb: u64) -> Hardware {
+        let ram_mb = ram_gb * 1024;
+        Hardware { gpu_vendor: "apple".into(), gpu_name: "Apple silicon".into(), vram_mb: ram_mb, ram_mb, threads: 8 }
+    }
+
+    #[test]
+    fn apple_silicon_tiers() {
+        let c = recommend(&mac(8), "en");
+        assert_eq!((c.speech_model.as_str(), &c.cleanup), ("small.en-q5", &CleanupLevel::Light));
+        assert_eq!(recommend(&mac(8), "de").speech_model, "small-q5");
+        let c = recommend(&mac(16), "en");
+        assert_eq!((c.speech_model.as_str(), c.llm_model.as_str(), &c.cleanup), ("large-v3-turbo-q5", "qwen3-1.7b", &CleanupLevel::Medium));
+        assert_eq!(recommend(&mac(18), "en").llm_model, "qwen3-1.7b");
+        assert_eq!(recommend(&mac(24), "en").llm_model, "qwen3-4b-instruct");
+        assert_eq!(recommend(&mac(36), "fr").speech_model, "large-v3-turbo-q5");
     }
 }

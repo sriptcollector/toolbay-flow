@@ -51,11 +51,15 @@ export default function Models() {
   };
   useEffect(load, []);
   useEffect(() => {
-    const t = setInterval(() => api.hardware().then(setHw), 3000);
+    // Engine status is re-read when the window gains focus or a download finishes, not polled.
+    const refresh = () => api.hardware().then(setHw);
+    window.addEventListener("focus", refresh);
     const off = on("settings-changed", load);
+    const offDl = on<{ stage: string }>("download-progress", (p) => p.stage === "done" && refresh());
     return () => {
-      clearInterval(t);
+      window.removeEventListener("focus", refresh);
       off();
+      offDl();
     };
   }, []);
   if (!s) return null;

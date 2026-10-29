@@ -26,6 +26,7 @@ mod textproc;
 use dictation::St;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -33,6 +34,46 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Webview
 
 /// Interactive rectangles of the floating bar, in logical px relative to its window.
 pub static BAR_HIT: Lazy<Mutex<Vec<[f64; 4]>>> = Lazy::new(|| Mutex::new(vec![]));
+
+/// Whether the bar window is shown, kept here so the bar loop doesn't ask the window system.
+pub static BAR_SHOWN: AtomicBool = AtomicBool::new(false);
+
+/// Shows or hides the bar window.
+pub fn show_bar_window(w: &tauri::WebviewWindow, on: bool) {
+    let _ = if on { w.show() } else { w.hide() };
+    BAR_SHOWN.store(on, Ordering::SeqCst);
+}
+
+/// Microphone names for the tray menu. Listing devices opens the audio system and is slow, so
+/// the menu uses this copy, refreshed when the pointer reaches the tray icon and whenever the
+/// app lists microphones.
+static MICS: Lazy<Mutex<Option<Vec<String>>>> = Lazy::new(|| Mutex::new(None));
+static LISTING_MICS: AtomicBool = AtomicBool::new(false);
+
+/// Stores a fresh microphone list; rebuilds the tray menu only if it changed.
+pub fn set_mics(app: &AppHandle, list: Vec<String>) {
+    let changed = {
+        let mut m = MICS.lock();
+        let changed = m.as_ref() != Some(&list);
+        *m = Some(list);
+        changed
+    };
+    if changed {
+        refresh_tray(app);
+    }
+}
+
+/// Lists microphones on a background thread (one at a time) and updates the tray.
+fn refresh_mics(app: &AppHandle) {
+    if LISTING_MICS.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        set_mics(&app, audio::list_devices());
+        LISTING_MICS.store(false, Ordering::SeqCst);
+    });
+}
 
 const BAR_W: f64 = 420.0;
 const BAR_H: f64 = 340.0;
@@ -128,7 +169,7 @@ fn create_bar(app: &AppHandle, visible: bool) -> tauri::Result<()> {
     let _ = w.set_ignore_cursor_events(true);
     place_bar(app);
     if visible {
-        let _ = w.show();
+        show_bar_window(&w, true);
     }
     Ok(())
 }
@@ -151,20 +192,25 @@ fn place_bar(app: &AppHandle) -> Option<()> {
     Some(())
 }
 
-/// Keeps the bar on the active monitor and click-through outside the pill.
+/// Keeps the bar on the active monitor and click-through outside the pill. Polls only while
+/// the bar is shown, about 8 times a second (each check is a trip to the main thread).
 fn bar_loop(app: AppHandle) {
     std::thread::spawn(move || {
         let mut ignoring = true;
         let mut tick = 0u32;
         loop {
-            std::thread::sleep(Duration::from_millis(60));
+            if !BAR_SHOWN.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(500));
+                continue;
+            }
+            std::thread::sleep(Duration::from_millis(120));
             tick += 1;
             let Some(w) = app.get_webview_window("bar") else { continue };
-            if tick % 7 == 0 {
+            if tick % 4 == 0 {
                 place_bar(&app);
             }
             // "Hide for 1 hour" from the bar menu: bring it back afterwards.
-            if tick % 50 == 0 {
+            if tick % 25 == 0 {
                 let st = app.state::<St>();
                 let (show, until) = {
                     let s = st.settings.read();
@@ -174,9 +220,17 @@ fn bar_loop(app: AppHandle) {
                     let _ = dictation::update_settings(&st, |s| s.bar_snooze_until = 0);
                     let _ = app.emit("bar-snoozed", 0i64);
                     if !w.is_visible().unwrap_or(true) {
-                        let _ = w.show();
+                        show_bar_window(&w, true);
                     }
                 }
+            }
+            // Nothing clickable drawn (pill hidden): stay click-through without asking for the cursor.
+            if BAR_HIT.lock().is_empty() {
+                if !ignoring {
+                    ignoring = true;
+                    let _ = w.set_ignore_cursor_events(true);
+                }
+                continue;
             }
             let (Ok(cur), Ok(pos), Ok(scale)) = (app.cursor_position(), w.outer_position(), w.scale_factor()) else { continue };
             let lx = (cur.x - pos.x as f64) / scale;
@@ -197,7 +251,7 @@ fn tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let paste_last = MenuItem::with_id(app, "paste_last", "Paste last dictation", true, None::<&str>)?;
     let mic = Submenu::with_id(app, "mic", "Microphone", true)?;
     mic.append(&CheckMenuItem::with_id(app, "mic:", "System default", true, s.microphone.is_none(), None::<&str>)?)?;
-    for d in audio::list_devices() {
+    for d in MICS.lock().clone().unwrap_or_default() {
         let checked = s.microphone.as_deref() == Some(d.as_str());
         mic.append(&CheckMenuItem::with_id(app, format!("mic:{d}"), &d, true, checked, None::<&str>)?)?;
     }
@@ -335,12 +389,17 @@ pub fn run() {
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, ev| on_menu(app, ev.id().as_ref()))
-                .on_tray_icon_event(|tray, ev| {
-                    if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = ev {
-                        show_hub(tray.app_handle(), None);
+                .on_tray_icon_event(|tray, ev| match ev {
+                    TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } => show_hub(tray.app_handle(), None),
+                    // About to open the menu: bring its microphone list up to date.
+                    TrayIconEvent::Enter { .. } | TrayIconEvent::Click { button: MouseButton::Right, button_state: MouseButtonState::Down, .. } => {
+                        refresh_mics(tray.app_handle())
                     }
+                    _ => {}
                 })
                 .build(app)?;
+            // The tray's microphone list fills in from a background thread.
+            refresh_mics(&handle);
 
             hub::write_state(&handle);
             dictation::start_hotkeys(&st);

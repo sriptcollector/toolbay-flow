@@ -272,13 +272,27 @@ Parity with Wispr Flow: ${{ env.PARITY }}."
           cp assets/*_x64-setup.exe Toolbay.Flow_x64-setup.exe
           gh release upload "${{ github.ref_name }}" Toolbay.Flow_x64-setup.exe --clobber
 
-  # whisper.cpp has no official macOS server binary, so build one with Metal and
-  # attach it to the fixed "engines-v1" release (bundled into the Mac app at build time).
+  # whisper.cpp has no official macOS server binary, so build our own and attach it to a
+  # fixed engines release (bundled into the Mac app at build time). Run by hand (Actions >
+  # release > Run workflow) before tagging a release that points at a new engines tag.
+  # - arm64: Metal, on the fixed "engines-v1" release.
+  # - x86_64 (Intel Macs): CPU only with AVX2/FMA/F16C, on "engines-v2". Metal on Intel
+  #   graphics is slower than the CPU, and GGML_NATIVE on the arm64 runner left the old
+  #   engines-v1 Intel build without AVX. A new tag, so the engines-v1 file older installs
+  #   download is never replaced.
   whisper-macos:
     if: github.event_name == 'workflow_dispatch'
     strategy:
       matrix:
-        arch: [arm64, x86_64]
+        include:
+          - arch: arm64
+            tag: engines-v1
+            flags: -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON
+            note: with Metal
+          - arch: x86_64
+            tag: engines-v2
+            flags: -DGGML_METAL=OFF -DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON
+            note: for Intel Macs (CPU, AVX2)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -286,16 +300,16 @@ Parity with Wispr Flow: ${{ env.PARITY }}."
           repository: ggml-org/whisper.cpp
           ref: b5454
       - run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }}
+          cmake -B build -DCMAKE_BUILD_TYPE=Release ${{ matrix.flags }} -DBUILD_SHARED_LIBS=OFF -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }}
           cmake --build build --config Release -j --target whisper-server
           mkdir out && cp build/bin/whisper-server out/
           tar -czf whisper-server-macos-${{ matrix.arch }}.tar.gz -C out whisper-server
       - uses: softprops/action-gh-release@v2
         with:
           repository: ${{ github.repository }}
-          tag_name: engines-v1
+          tag_name: ${{ matrix.tag }}
           name: "Engines (macOS builds of whisper.cpp)"
-          body: "whisper-server built from ggml-org/whisper.cpp b5454 with Metal (MIT). Bundled into Toolbay Flow for macOS."
+          body: "whisper-server built from ggml-org/whisper.cpp b5454 ${{ matrix.note }} (MIT). Bundled into Toolbay Flow for macOS."
           files: whisper-server-macos-${{ matrix.arch }}.tar.gz
           make_latest: false
           target_commitish: ${{ github.sha }}
